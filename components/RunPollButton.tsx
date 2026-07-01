@@ -93,7 +93,7 @@ export function RunPollButton() {
       <button
         onClick={run}
         disabled={starting || running}
-        className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+        className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
       >
         {running
           ? `Polling… ${status!.done}/${status!.pollTotal}`
@@ -104,13 +104,13 @@ export function RunPollButton() {
 
       {running && (
         <div className="w-60">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
             <div
-              className="h-full rounded-full bg-brand-500 transition-all"
+              className="h-full rounded-full bg-accent transition-all"
               style={{ width: `${pct}%` }}
             />
           </div>
-          <div className="mt-0.5 text-right text-xs text-slate-500">
+          <div className="mt-0.5 text-right text-xs text-subtle">
             {status!.done}/{status!.pollTotal}
             {eta != null && eta > 0 ? ` · ~${fmtEta(eta)} left` : ""} · runs in background
           </div>
@@ -118,11 +118,11 @@ export function RunPollButton() {
       )}
 
       {!running && status && status.pending > 0 && (
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-subtle">
           {status.backfilled}/{status.total} backfilled
         </span>
       )}
-      {err && <span className="max-w-xs text-right text-xs text-red-600">{err}</span>}
+      {err && <span className="max-w-xs text-right text-xs text-neg">{err}</span>}
     </div>
   );
 }

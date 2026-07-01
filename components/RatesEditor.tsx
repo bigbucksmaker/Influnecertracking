@@ -49,15 +49,15 @@ export function RatesEditor({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg/30 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-lg"
+        className="w-full max-w-sm rounded-xl border border-line bg-surface p-5 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-sm font-semibold text-slate-900">Rates — @{username}</h3>
-        <p className="mt-0.5 text-xs text-slate-500">USD per deliverable. Leave blank to clear.</p>
+        <h3 className="text-sm font-semibold text-fg">Rates — @{username}</h3>
+        <p className="mt-0.5 text-xs text-subtle">USD per deliverable. Leave blank to clear.</p>
         <div className="mt-3 grid grid-cols-2 gap-3">
           <Field label="Quote tweet" value={qt} onChange={setQt} />
           <Field label="Post" value={post} onChange={setPost} />
@@ -67,14 +67,14 @@ export function RatesEditor({
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-surface-2"
           >
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving}
-            className="rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
           >
             {saving ? "Saving…" : "Save"}
           </button>
@@ -95,13 +95,13 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs text-slate-500">{label} ($)</span>
+      <span className="text-xs text-subtle">{label} ($)</span>
       <input
         type="number"
         min={0}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm tabular-nums"
+        className="mt-1 w-full rounded-lg border border-line px-2 py-1 text-sm tabular-nums"
       />
     </label>
   );

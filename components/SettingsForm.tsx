@@ -68,15 +68,15 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
   return (
     <div className="space-y-6">
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Performance Score weights</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Performance Score weights</h2>
+        <p className="mt-1 text-xs text-subtle">
           Reach = avg views/post. Engagement = engagements ÷ impressions. Both are normalized across
           the tracked set before blending. Follower growth is tracked but excluded from the score.
         </p>
         <div className="mt-4">
           <div className="mb-1 flex justify-between text-sm">
-            <span className="font-medium text-brand-700">Reach {reachPct}%</span>
-            <span className="font-medium text-emerald-700">Engagement {100 - reachPct}%</span>
+            <span className="font-medium text-accent-400">Reach {reachPct}%</span>
+            <span className="font-medium text-pos">Engagement {100 - reachPct}%</span>
           </div>
           <input
             type="range"
@@ -89,11 +89,11 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
           />
         </div>
         <div className="mt-3">
-          <label className="text-sm text-slate-600">Normalization</label>
+          <label className="text-sm text-muted">Normalization</label>
           <select
             value={normalization}
             onChange={(e) => setNorm(e.target.value)}
-            className="ml-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+            className="ml-2 rounded-lg border border-line px-3 py-1.5 text-sm"
           >
             <option value="percentile">Percentile rank</option>
             <option value="zscore">Z-score</option>
@@ -102,8 +102,8 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Budget & plan cap</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Budget & plan cap</h2>
+        <p className="mt-1 text-xs text-subtle">
           The dashboard warns you when projected month-end spend exceeds this cap.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -112,7 +112,7 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
             onChange={(e) => {
               if (e.target.value !== "custom") setPlanCap(Number(e.target.value));
             }}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm"
           >
             {PLAN_TIERS.map((t) => (
               <option key={t.name} value={t.credits}>
@@ -121,22 +121,22 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
             ))}
             <option value="custom">Custom…</option>
           </select>
-          <label className="flex items-center gap-2 text-sm text-slate-600">
+          <label className="flex items-center gap-2 text-sm text-muted">
             Cap (credits)
             <input
               type="number"
               value={planCap}
               min={1}
               onChange={(e) => setPlanCap(Number(e.target.value))}
-              className="w-40 rounded-lg border border-slate-300 px-3 py-1.5 text-sm tabular-nums"
+              className="w-40 rounded-lg border border-line px-3 py-1.5 text-sm tabular-nums"
             />
           </label>
         </div>
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Adaptive polling & freezing</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Adaptive polling & freezing</h2>
+        <p className="mt-1 text-xs text-subtle">
           These control your bill. Active accounts (posted within the window) poll often; dormant ones
           poll rarely. Posts older than the freeze age get one final snapshot, then stop costing credits.
         </p>
@@ -146,7 +146,7 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
           <NumberField label="Dormant poll interval (hours)" value={dormantPollHours} onChange={setDPH} />
           <NumberField label="Freeze posts older than (days)" value={freezeAgeDays} onChange={setFAD} hint="Stop re-polling stale posts" />
           <NumberField label="Backfill window (days)" value={backfillDays} onChange={setBFD} hint="History pulled on add" />
-          <label className="flex items-end gap-2 pb-1 text-sm text-slate-600">
+          <label className="flex items-end gap-2 pb-1 text-sm text-muted">
             <input type="checkbox" checked={includeReplies} onChange={(e) => setIncludeReplies(e.target.checked)} />
             Include replies in tracking
           </label>
@@ -154,8 +154,8 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Confidence & movers</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Confidence & movers</h2>
+        <p className="mt-1 text-xs text-subtle">
           Scores built on thin or stale data are flagged <b>low-confidence</b> (dimmed on the
           leaderboard) rather than hidden. Falling threshold mirrors the +25% rising rule for
           week-over-week declines.
@@ -183,8 +183,8 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Commissioned posts</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Commissioned posts</h2>
+        <p className="mt-1 text-xs text-subtle">
           Commissioned posts in an active campaign keep updating for longer than normal posts, and are
           flagged when they underdeliver against the creator&apos;s organic median. Prices are stored
           for reference only and never enter a metric.
@@ -209,11 +209,11 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-brand-500 px-5 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+          className="rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save settings"}
         </button>
-        {msg && <span className="text-sm text-slate-500">{msg}</span>}
+        {msg && <span className="text-sm text-subtle">{msg}</span>}
       </div>
     </div>
   );
@@ -232,15 +232,15 @@ function NumberField({
 }) {
   return (
     <label className="block">
-      <span className="text-sm text-slate-600">{label}</span>
+      <span className="text-sm text-muted">{label}</span>
       <input
         type="number"
         min={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm tabular-nums"
+        className="mt-1 w-full rounded-lg border border-line px-3 py-1.5 text-sm tabular-nums"
       />
-      {hint && <span className="mt-0.5 block text-xs text-slate-400">{hint}</span>}
+      {hint && <span className="mt-0.5 block text-xs text-subtle">{hint}</span>}
     </label>
   );
 }

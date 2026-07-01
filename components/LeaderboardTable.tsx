@@ -14,63 +14,47 @@ type SortDir = "asc" | "desc";
 interface Column {
   key: string;
   label: string;
+  group: string;
   numeric?: boolean;
+  defaultHidden?: boolean;
   sortVal: (r: LeaderboardRow) => number | string | null;
   render: (r: LeaderboardRow) => React.ReactNode;
   title?: string;
 }
 
+// Order matters: columns are contiguous within their group for the grouped header.
 const COLUMNS: Column[] = [
-  { key: "rank", label: "#", numeric: true, sortVal: (r) => r.rank, render: (r) => r.rank },
+  { key: "rank", label: "#", group: "Rank", numeric: true, sortVal: (r) => r.rank, render: (r) => r.rank },
   {
     key: "score",
     label: "Score",
+    group: "Rank",
     numeric: true,
     title: "Performance Score (0–100): blend of normalized MEDIAN reach + engagement rate",
     sortVal: (r) => r.performanceScore,
     render: (r) => (
-      <span className="inline-flex items-center gap-1">
-        <span className="font-semibold text-slate-900">{r.performanceScore}</span>
+      <span className="inline-flex items-center justify-end gap-1.5">
+        <span className="font-semibold text-fg">{r.performanceScore}</span>
         {r.lowConfidence && (
-          <span title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}>
-            <Badge color="amber">⚠</Badge>
-          </span>
+          <span
+            className="h-1.5 w-1.5 rounded-full bg-warn"
+            title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}
+          />
         )}
       </span>
     ),
   },
   {
-    key: "followers",
-    label: "Followers",
-    numeric: true,
-    sortVal: (r) => r.currentFollowers,
-    render: (r) => formatNumber(r.currentFollowers),
-  },
-  {
-    key: "fg7",
-    label: "Follower Δ 7d",
-    numeric: true,
-    sortVal: (r) => r.followerGrowth7d,
-    render: (r) => <Delta abs={r.followerGrowth7d} pct={r.followerGrowth7dPct} />,
-  },
-  {
-    key: "fg30",
-    label: "Follower Δ 30d",
-    numeric: true,
-    sortVal: (r) => r.followerGrowth30d,
-    render: (r) => <Delta abs={r.followerGrowth30d} pct={r.followerGrowth30dPct} />,
-  },
-  {
     key: "median",
     label: "Median views",
+    group: "Reach",
     numeric: true,
-    title:
-      "Reach — MEDIAN views/post over the trailing 7 days (robust to viral spikes). Sub-value: p25 floor.",
+    title: "Reach — MEDIAN views/post over the trailing 7 days (robust to viral spikes). Sub-value: p25 floor.",
     sortVal: (r) => r.medianViews,
     render: (r) => (
       <div className="leading-tight">
         <div>{formatNumber(r.medianViews)}</div>
-        <div className="text-[10px] text-slate-400" title="25th-percentile views/post (floor)">
+        <div className="text-[10px] text-subtle" title="25th-percentile views/post (floor)">
           p25 {formatNumber(r.p25Views)}
         </div>
       </div>
@@ -79,6 +63,7 @@ const COLUMNS: Column[] = [
   {
     key: "consistency",
     label: "Steadiness",
+    group: "Reach",
     title: "IQR ÷ median — lower is steadier. Steady < 0.5 · Spiky ≥ 1.0",
     sortVal: (r) => r.consistency,
     render: (r) => <Steadiness c={r.consistency} />,
@@ -86,6 +71,7 @@ const COLUMNS: Column[] = [
   {
     key: "erImp",
     label: "ER (impr.)",
+    group: "Engagement",
     numeric: true,
     title: "Engagements ÷ impressions (7d)",
     sortVal: (r) => r.erImpressions,
@@ -94,68 +80,95 @@ const COLUMNS: Column[] = [
   {
     key: "erFol",
     label: "ER (foll.)",
+    group: "Engagement",
     numeric: true,
+    defaultHidden: true,
     title: "Avg engagements per post ÷ followers",
     sortVal: (r) => r.erFollowers,
     render: (r) => formatPct(r.erFollowers),
   },
   {
+    key: "followers",
+    label: "Followers",
+    group: "Audience",
+    numeric: true,
+    sortVal: (r) => r.currentFollowers,
+    render: (r) => formatNumber(r.currentFollowers),
+  },
+  {
+    key: "fg7",
+    label: "Δ 7d",
+    group: "Audience",
+    numeric: true,
+    defaultHidden: true,
+    title: "Follower growth, last 7 days",
+    sortVal: (r) => r.followerGrowth7d,
+    render: (r) => <Delta abs={r.followerGrowth7d} pct={r.followerGrowth7dPct} />,
+  },
+  {
+    key: "fg30",
+    label: "Δ 30d",
+    group: "Audience",
+    numeric: true,
+    defaultHidden: true,
+    title: "Follower growth, last 30 days",
+    sortVal: (r) => r.followerGrowth30d,
+    render: (r) => <Delta abs={r.followerGrowth30d} pct={r.followerGrowth30dPct} />,
+  },
+  {
     key: "posts7",
     label: "Posts 7d",
+    group: "Momentum",
     numeric: true,
     sortVal: (r) => r.postCount7d,
     render: (r) => r.postCount7d,
   },
   {
-    key: "qtRate",
-    label: "QT Rate",
-    numeric: true,
-    title: "Quote-tweet campaign rate (USD) — reference only, never used in scoring",
-    sortVal: (r) => r.rateQuoteTweet,
-    render: (r) => (r.rateQuoteTweet != null ? `$${r.rateQuoteTweet}` : "—"),
-  },
-  {
     key: "wow",
-    label: "WoW views",
+    label: "WoW",
+    group: "Momentum",
     numeric: true,
     title: "Week-over-week change in average views/post",
     sortVal: (r) => r.wowViewsPct,
     render: (r) => (
       <span className="flex items-center justify-end gap-1">
-        {r.rising && (
-          <span title="Rising ≥ threshold WoW">
-            <Badge color="green">▲</Badge>
-          </span>
-        )}
-        {r.falling && (
-          <span title="Falling ≥ threshold WoW">
-            <Badge color="red">▼</Badge>
-          </span>
-        )}
+        {r.rising && <span className="text-pos" title="Rising ≥ threshold WoW">▲</span>}
+        {r.falling && <span className="text-neg" title="Falling ≥ threshold WoW">▼</span>}
         <Signed pct={r.wowViewsPct} />
       </span>
     ),
   },
   {
     key: "trend",
-    label: "4wk trend",
+    label: "4wk",
+    group: "Momentum",
     title: "Weekly-median views/post over the last 4 weeks",
     sortVal: (r) => r.viewsSparkline[r.viewsSparkline.length - 1] ?? null,
     render: (r) => <Sparkline values={r.viewsSparkline} />,
   },
   {
+    key: "qtRate",
+    label: "QT Rate",
+    group: "Rates",
+    numeric: true,
+    defaultHidden: true,
+    title: "Quote-tweet campaign rate (USD) — reference only, never used in scoring",
+    sortVal: (r) => r.rateQuoteTweet,
+    render: (r) => (r.rateQuoteTweet != null ? `$${r.rateQuoteTweet}` : "—"),
+  },
+  {
     key: "tier",
     label: "Tier",
+    group: "Status",
     sortVal: (r) => r.pollingTier,
-    render: (r) => (
-      <Badge color={r.pollingTier === "active" ? "blue" : "slate"}>{r.pollingTier}</Badge>
-    ),
+    render: (r) => <Badge color={r.pollingTier === "active" ? "blue" : "slate"}>{r.pollingTier}</Badge>,
   },
   {
     key: "polled",
     label: "Last poll",
+    group: "Status",
     sortVal: (r) => r.lastPolledAt,
-    render: (r) => <span className="text-slate-500">{r.lastPolledAt ? relativeTime(r.lastPolledAt) : "never"}</span>,
+    render: (r) => <span className="text-subtle">{r.lastPolledAt ? relativeTime(r.lastPolledAt) : "never"}</span>,
   },
 ];
 
@@ -166,6 +179,9 @@ interface InitialFilters {
   q?: string;
   tag?: string;
 }
+
+const CONTROL =
+  "rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-subtle focus:border-accent focus:outline-none";
 
 export function LeaderboardTable({
   rows: initialRows,
@@ -186,6 +202,30 @@ export function LeaderboardTable({
   const [tier, setTier] = useState(initialFilters?.tier ?? "");
   const [direction, setDirection] = useState(initialFilters?.direction ?? "");
   const [risingOnly, setRisingOnly] = useState(initialFilters?.rising ?? false);
+  const [hidden, setHidden] = useState<Set<string>>(
+    () => new Set(COLUMNS.filter((c) => c.defaultHidden).map((c) => c.key)),
+  );
+  const [showCols, setShowCols] = useState(false);
+
+  const visibleColumns = useMemo(() => COLUMNS.filter((c) => !hidden.has(c.key)), [hidden]);
+  const groupStarts = useMemo(() => {
+    const s = new Set<string>();
+    let prev = "";
+    for (const c of visibleColumns) {
+      if (c.group !== prev) s.add(c.key);
+      prev = c.group;
+    }
+    return s;
+  }, [visibleColumns]);
+  const groupSpans = useMemo(() => {
+    const out: { label: string; span: number }[] = [];
+    for (const c of visibleColumns) {
+      const last = out[out.length - 1];
+      if (last && last.label === c.group) last.span++;
+      else out.push({ label: c.group, span: 1 });
+    }
+    return out;
+  }, [visibleColumns]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -203,12 +243,30 @@ export function LeaderboardTable({
     return out;
   }, [rows, q, tag, tier, direction, risingOnly, sortKey, sortDir]);
 
+  const anyFilter = q || tag || tier || direction || risingOnly;
+  function resetFilters() {
+    setQ("");
+    setTag("");
+    setTier("");
+    setDirection("");
+    setRisingOnly(false);
+  }
+
   function toggleSort(key: string) {
     if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(key);
       setSortDir(key === "rank" ? "asc" : "desc");
     }
+  }
+
+  function toggleCol(key: string) {
+    setHidden((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
   }
 
   async function saveRates(accountId: string, r: Rates) {
@@ -222,120 +280,150 @@ export function LeaderboardTable({
 
   return (
     <div>
+      {/* Toolbar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search handle or name…"
-          className="w-56 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-        />
-        <select
-          value={tag}
-          onChange={(e) => setTag(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-        >
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search handle or name…" className={clsx(CONTROL, "w-56")} />
+        <select value={tag} onChange={(e) => setTag(e.target.value)} className={CONTROL}>
           <option value="">All niches</option>
           {allTags.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
+            <option key={t} value={t}>{t}</option>
           ))}
         </select>
-        <select
-          value={tier}
-          onChange={(e) => setTier(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-        >
+        <select value={tier} onChange={(e) => setTier(e.target.value)} className={CONTROL}>
           <option value="">All tiers</option>
           <option value="active">Active</option>
           <option value="dormant">Dormant</option>
         </select>
-        <select
-          value={direction}
-          onChange={(e) => setDirection(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-          title="Filter by week-over-week direction"
-        >
+        <select value={direction} onChange={(e) => setDirection(e.target.value)} className={CONTROL} title="Filter by week-over-week direction">
           <option value="">All directions</option>
           <option value="rising">Rising ▲</option>
           <option value="falling">Falling ▼</option>
           <option value="flat">Flat</option>
         </select>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600">
-          <input type="checkbox" checked={risingOnly} onChange={(e) => setRisingOnly(e.target.checked)} />
+        <label className="flex items-center gap-1.5 text-sm text-muted">
+          <input type="checkbox" checked={risingOnly} onChange={(e) => setRisingOnly(e.target.checked)} className="accent-accent" />
           Rising only
         </label>
-        <span className="ml-auto text-xs text-slate-500">{filtered.length} shown</span>
+        {anyFilter && (
+          <button onClick={resetFilters} className="text-xs text-subtle hover:text-fg">
+            Reset
+          </button>
+        )}
+
+        <span className="ml-auto text-xs text-subtle">{filtered.length} shown</span>
+
+        {/* Column visibility */}
+        <div className="relative">
+          <button
+            onClick={() => setShowCols((s) => !s)}
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-muted hover:bg-surface-2"
+          >
+            Columns ▾
+          </button>
+          {showCols && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setShowCols(false)} />
+              <div className="absolute right-0 z-40 mt-1 w-52 rounded-lg border border-line bg-surface p-1.5 shadow-pop">
+                {COLUMNS.filter((c) => c.key !== "rank" && c.key !== "score").map((c) => (
+                  <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted hover:bg-surface-2">
+                    <input type="checkbox" checked={!hidden.has(c.key)} onChange={() => toggleCol(c.key)} className="accent-accent" />
+                    <span className="text-fg">{c.label}</span>
+                    <span className="ml-auto text-[10px] uppercase tracking-wide text-subtle">{c.group}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
         <button
           onClick={() => downloadCsv(filtered)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-muted hover:bg-surface-2"
         >
           Export CSV
         </button>
       </div>
 
-      <div className="scroll-thin overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="data w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50">
+      {/* Table — bounded scroll region so both the header (top) and identity column (left) stay pinned. */}
+      <div className="scroll-thin max-h-[72vh] overflow-auto rounded-xl border border-line bg-surface">
+        <table className="w-full border-separate border-spacing-0 text-sm">
+          <thead>
+            {/* group row */}
             <tr>
-              <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2">Account</th>
-              {COLUMNS.map((c) => (
+              <th
+                rowSpan={2}
+                className="sticky left-0 top-0 z-30 border-b border-r border-line bg-surface-2 px-3 py-2 text-left align-bottom text-[10px] font-medium uppercase tracking-wide text-subtle"
+              >
+                Account
+              </th>
+              {groupSpans.map((g, i) => (
+                <th
+                  key={`${g.label}-${i}`}
+                  colSpan={g.span}
+                  className="sticky top-0 z-20 h-8 border-b border-l border-line-soft bg-surface-2 px-3 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-subtle"
+                >
+                  {g.label}
+                </th>
+              ))}
+              <th rowSpan={2} className="sticky top-0 z-20 border-b border-line bg-surface-2 px-3 py-2 text-right align-bottom text-[10px] font-medium uppercase tracking-wide text-subtle">
+                Actions
+              </th>
+            </tr>
+            {/* label row */}
+            <tr>
+              {visibleColumns.map((c) => (
                 <th
                   key={c.key}
                   onClick={() => toggleSort(c.key)}
                   title={c.title}
                   className={clsx(
-                    "cursor-pointer px-3 py-2 hover:text-slate-700",
+                    "sticky top-8 z-20 cursor-pointer border-b border-line bg-surface-2 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-subtle transition-colors hover:text-fg",
                     c.numeric ? "text-right" : "text-left",
+                    groupStarts.has(c.key) && "border-l border-line-soft",
                   )}
                 >
                   {c.label}
-                  {sortKey === c.key && <span className="ml-1 text-slate-400">{sortDir === "asc" ? "▲" : "▼"}</span>}
+                  {sortKey === c.key && <span className="ml-1 text-accent-400">{sortDir === "asc" ? "▲" : "▼"}</span>}
                 </th>
               ))}
-              <th className="px-3 py-2 text-right">Edit</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((r) => (
-              <tr
-                key={r.accountId}
-                className={clsx(
-                  "border-b border-slate-100 last:border-0 hover:bg-slate-50",
-                  r.lowConfidence && "opacity-55",
-                )}
-              >
-                <td className="sticky left-0 z-10 bg-white px-3 py-2">
-                  <Link href={`/influencer/${r.username}`} className="flex items-center gap-2">
+              <tr key={r.accountId} className={clsx("group hover:bg-surface-2", r.lowConfidence && "opacity-60")}>
+                <td className="sticky left-0 z-10 border-b border-r border-line-soft bg-surface px-3 py-2 group-hover:bg-surface-2">
+                  <Link href={`/influencer/${r.username}`} className="flex items-center gap-2.5">
                     <Avatar src={r.profilePicture} alt={r.username} size={28} />
                     <span className="min-w-0">
-                      <span className="block max-w-[180px] truncate font-medium text-slate-900">
-                        {r.displayName ?? r.username}
-                      </span>
-                      <span className="flex items-center gap-1 truncate text-xs text-slate-500">
+                      <span className="block max-w-[170px] truncate font-medium text-fg">{r.displayName ?? r.username}</span>
+                      <span className="flex items-center gap-1 truncate text-xs text-subtle">
                         @{r.username}
                         {r.lowConfidence && (
-                          <span title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}>
-                            <Badge color="amber">low-confidence</Badge>
-                          </span>
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn"
+                            title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}
+                          />
                         )}
                       </span>
                     </span>
                   </Link>
                 </td>
-                {COLUMNS.map((c) => (
-                  <td key={c.key} className={clsx("px-3 py-2", c.numeric ? "text-right tabular-nums" : "text-left")}>
+                {visibleColumns.map((c) => (
+                  <td
+                    key={c.key}
+                    className={clsx(
+                      "border-b border-line-soft px-3 py-2",
+                      c.numeric ? "text-right font-mono tabular-nums" : "text-left",
+                      groupStarts.has(c.key) && "border-l border-line-soft",
+                    )}
+                  >
                     {c.render(r)}
                   </td>
                 ))}
-                <td className="px-3 py-2 text-right">
-                  <span className="inline-flex items-center gap-2">
+                <td className="border-b border-line-soft px-3 py-2 text-right">
+                  <span className="inline-flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <AddToShortlist username={r.username} />
-                    <button
-                      onClick={() => setEditing(r)}
-                      className="text-xs text-brand-600 hover:underline"
-                      title="Edit rates"
-                    >
+                    <button onClick={() => setEditing(r)} className="text-xs text-accent-400 hover:underline" title="Edit rates">
                       ✎ rates
                     </button>
                   </span>
@@ -344,7 +432,7 @@ export function LeaderboardTable({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length + 2} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={visibleColumns.length + 2} className="px-3 py-10 text-center text-subtle">
                   No accounts match your filters.
                 </td>
               </tr>
@@ -371,8 +459,8 @@ export function LeaderboardTable({
 }
 
 function Delta({ abs, pct }: { abs: number | null; pct: number | null }) {
-  if (abs == null) return <span className="text-slate-400">—</span>;
-  const tone = abs > 0 ? "text-emerald-600" : abs < 0 ? "text-red-600" : "text-slate-500";
+  if (abs == null) return <span className="text-subtle">—</span>;
+  const tone = abs > 0 ? "text-pos" : abs < 0 ? "text-neg" : "text-subtle";
   return (
     <span className={tone}>
       {abs > 0 ? "+" : ""}
@@ -383,12 +471,12 @@ function Delta({ abs, pct }: { abs: number | null; pct: number | null }) {
 }
 
 function Signed({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-slate-400">—</span>;
-  return <span className={pct > 0 ? "text-emerald-600" : pct < 0 ? "text-red-600" : "text-slate-500"}>{formatSignedPct(pct)}</span>;
+  if (pct == null) return <span className="text-subtle">—</span>;
+  return <span className={pct > 0 ? "text-pos" : pct < 0 ? "text-neg" : "text-subtle"}>{formatSignedPct(pct)}</span>;
 }
 
 function Steadiness({ c }: { c: number | null }) {
-  if (c == null) return <span className="text-slate-300">—</span>;
+  if (c == null) return <span className="text-subtle">—</span>;
   if (c < 0.5) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="green">steady</Badge></span>;
   if (c < 1.0) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="slate">normal</Badge></span>;
   return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="amber">spiky</Badge></span>;

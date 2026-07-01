@@ -26,7 +26,7 @@ export default async function InfluencerPage({
   return (
     <>
       <div className="flex items-center justify-between gap-3">
-        <Link href="/leaderboard" className="text-sm text-slate-500 hover:text-slate-700">
+        <Link href="/leaderboard" className="text-sm text-subtle hover:text-muted">
           ← Back to leaderboard
         </Link>
         <RemoveInfluencerButton id={account.id} username={account.username} />
@@ -37,7 +37,7 @@ export default async function InfluencerPage({
           <Avatar src={account.profilePicture} alt={account.username} size={64} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold text-slate-900">
+              <h1 className="text-xl font-semibold text-fg">
                 {account.displayName ?? account.username}
               </h1>
               {account.isBlueVerified && <Badge color="blue">Verified</Badge>}
@@ -55,12 +55,12 @@ export default async function InfluencerPage({
               href={`https://x.com/${account.username}`}
               target="_blank"
               rel="noreferrer"
-              className="text-sm text-slate-500 hover:underline"
+              className="text-sm text-subtle hover:underline"
             >
               @{account.username}
             </a>
             {account.description && (
-              <p className="mt-2 max-w-2xl text-sm text-slate-600">{account.description}</p>
+              <p className="mt-2 max-w-2xl text-sm text-muted">{account.description}</p>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {account.tags.map((t) => (
@@ -69,10 +69,10 @@ export default async function InfluencerPage({
                 </Badge>
               ))}
             </div>
-            <div className="mt-2 text-xs text-slate-400">
+            <div className="mt-2 text-xs text-subtle">
               {row?.currentFollowers != null && (
                 <>
-                  <b className="text-slate-600">{formatFull(row.currentFollowers)}</b> followers ·{" "}
+                  <b className="text-muted">{formatFull(row.currentFollowers)}</b> followers ·{" "}
                 </>
               )}
               {row?.following != null && <>{formatFull(row.following)} following · </>}
@@ -121,14 +121,14 @@ export default async function InfluencerPage({
       </div>
 
       <Card className="mt-6 overflow-hidden">
-        <div className="border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Recent posts <span className="text-slate-400">· ranked by views</span>
+        <div className="border-b border-line px-5 py-3">
+          <h2 className="text-sm font-semibold text-fg">
+            Recent posts <span className="text-subtle">· ranked by views</span>
           </h2>
         </div>
         <div className="scroll-thin overflow-x-auto">
           <table className="data w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50">
+            <thead className="border-b border-line bg-surface-2">
               <tr>
                 <th className="px-4 py-2 text-left">Post</th>
                 <th className="px-4 py-2 text-left">Posted</th>
@@ -143,13 +143,13 @@ export default async function InfluencerPage({
             </thead>
             <tbody>
               {recentPosts.map((p) => (
-                <tr key={p.id} className="border-b border-slate-100 last:border-0 align-top">
+                <tr key={p.id} className="border-b border-line-soft last:border-0 align-top">
                   <td className="max-w-md px-4 py-2">
                     <a
                       href={p.url ?? `https://x.com/${account.username}/status/${p.id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="line-clamp-2 text-slate-700 hover:underline"
+                      className="line-clamp-2 text-muted hover:underline"
                     >
                       {p.text || "(no text)"}
                     </a>
@@ -159,7 +159,7 @@ export default async function InfluencerPage({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-slate-500">{relativeTime(p.postedAt)}</td>
+                  <td className="px-4 py-2 text-subtle">{relativeTime(p.postedAt)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatNumber(p.views)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatNumber(p.likes)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatNumber(p.retweets)}</td>
@@ -171,7 +171,7 @@ export default async function InfluencerPage({
               ))}
               {recentPosts.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-10 text-center text-subtle">
                     No posts stored yet. Run a poll or backfill this account.
                   </td>
                 </tr>
