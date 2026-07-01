@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(pnpm -v)",
+      "Bash(git -C \"/Users/hannaan/Influencer Tracking\" status)",
+      "Bash(zsh -lic 'which node; node -v')",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//Users/hannaan/.nvm/versions/**)",
+      "WebFetch(domain:docs.twitterapi.io)"
+    ]
+  }
+}

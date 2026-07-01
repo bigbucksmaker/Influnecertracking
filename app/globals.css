@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* thin, tasteful scrollbars for the data tables */
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded;
+}
+
+table.data th {
+  @apply text-left font-medium text-slate-500 whitespace-nowrap select-none;
+}
+table.data td {
+  @apply whitespace-nowrap;
+}

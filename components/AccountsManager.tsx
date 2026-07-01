@@ -1,0 +1,249 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import type { AccountOverview } from "@/lib/accounts";
+import { Card, Avatar, Badge } from "./ui";
+import { formatNumber, relativeTime } from "@/lib/format";
+
+export function AccountsManager({
+  initialAccounts,
+  allTags,
+}: {
+  initialAccounts: AccountOverview[];
+  allTags: string[];
+}) {
+  const [accounts, setAccounts] = useState(initialAccounts);
+  const [input, setInput] = useState("");
+  const [tags, setTags] = useState("");
+  const [backfill, setBackfill] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function refresh() {
+    const res = await fetch("/api/accounts");
+    if (res.ok) setAccounts((await res.json()).accounts);
+  }
+
+  async function addAccounts(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          input,
+          tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+          backfill,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to add");
+      const credits = (data.backfill ?? []).reduce((s: number, b: any) => s + (b.credits ?? 0), 0);
+      const failed = (data.backfill ?? []).filter((b: any) => !b.ok);
+      setMsg(
+        `Added ${data.created.length}, skipped ${data.skipped.length} (already tracked). ` +
+          (backfill ? `Backfill used ${credits.toLocaleString()} credits.` : "") +
+          (failed.length ? ` ${failed.length} backfill error(s): ${failed.map((f: any) => f.username + " — " + f.error).join("; ")}` : ""),
+      );
+      setAccounts(data.accounts);
+      setInput("");
+      setTags("");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Failed to add");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function act(id: string, fn: () => Promise<Response>) {
+    setBusyId(id);
+    try {
+      await fn();
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const toggleStatus = (a: AccountOverview) =>
+    act(a.id, () =>
+      fetch(`/api/accounts/${a.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: a.status === "active" ? "paused" : "active" }),
+      }),
+    );
+
+  const runBackfill = (a: AccountOverview) =>
+    act(a.id, () => fetch(`/api/accounts/${a.id}/backfill`, { method: "POST" }));
+
+  const remove = (a: AccountOverview) => {
+    if (!confirm(`Remove @${a.username}? This deletes its snapshot history.`)) return Promise.resolve();
+    return act(a.id, () => fetch(`/api/accounts/${a.id}`, { method: "DELETE" }));
+  };
+
+  const editTags = (a: AccountOverview) => {
+    const val = window.prompt("Niche tags (comma separated):", a.tags.join(", "));
+    if (val == null) return;
+    const t = val.split(",").map((s) => s.trim()).filter(Boolean);
+    return act(a.id, () =>
+      fetch(`/api/accounts/${a.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tags: t }),
+      }),
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-5">
+        <h2 className="text-sm font-semibold text-slate-900">Add influencers</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Paste handles, @mentions, or profile URLs — separated by commas, spaces, or newlines. Each
+          new handle is backfilled with the last 7 days of posts.
+        </p>
+        <form onSubmit={addAccounts} className="mt-3 space-y-3">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            rows={3}
+            placeholder="elonmusk, @naval&#10;https://x.com/paulg"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              placeholder="Niche tags (e.g. AI, Crypto)"
+              className="w-64 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              list="tag-suggestions"
+            />
+            <datalist id="tag-suggestions">
+              {allTags.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+            <label className="flex items-center gap-1.5 text-sm text-slate-600">
+              <input type="checkbox" checked={backfill} onChange={(e) => setBackfill(e.target.checked)} />
+              Backfill last 7 days now
+            </label>
+            <button
+              type="submit"
+              disabled={busy}
+              className="ml-auto rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+            >
+              {busy ? "Adding…" : "Add to watchlist"}
+            </button>
+          </div>
+          {msg && <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">{msg}</div>}
+        </form>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Watchlist <span className="text-slate-400">· {accounts.length}</span>
+          </h2>
+        </div>
+        <div className="scroll-thin overflow-x-auto">
+          <table className="data w-full text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50">
+              <tr>
+                <th className="px-4 py-2">Account</th>
+                <th className="px-4 py-2 text-left">Niches</th>
+                <th className="px-4 py-2 text-right">Followers</th>
+                <th className="px-4 py-2 text-right">Posts</th>
+                <th className="px-4 py-2 text-left">Tier</th>
+                <th className="px-4 py-2 text-left">Backfill</th>
+                <th className="px-4 py-2 text-left">Last poll</th>
+                <th className="px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((a) => (
+                <tr key={a.id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-4 py-2">
+                    <Link href={`/influencer/${a.username}`} className="flex items-center gap-2">
+                      <Avatar src={a.profilePicture} alt={a.username} size={28} />
+                      <span>
+                        <span className="block font-medium text-slate-900">
+                          {a.displayName ?? a.username}
+                        </span>
+                        <span className="block text-xs text-slate-500">@{a.username}</span>
+                      </span>
+                      {a.status === "paused" && <Badge color="amber">paused</Badge>}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {a.tags.map((t) => (
+                        <Badge key={t} color="purple">
+                          {t}
+                        </Badge>
+                      ))}
+                      <button onClick={() => editTags(a)} className="text-xs text-brand-600 hover:underline">
+                        edit
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">{formatNumber(a.currentFollowers)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{formatNumber(a.postCount)}</td>
+                  <td className="px-4 py-2">
+                    <Badge color={a.pollingTier === "active" ? "blue" : "slate"}>{a.pollingTier}</Badge>
+                  </td>
+                  <td className="px-4 py-2">
+                    {a.backfilledAt ? (
+                      <Badge color="green">done</Badge>
+                    ) : (
+                      <Badge color="amber">pending</Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-slate-500">
+                    {a.lastPolledAt ? relativeTime(a.lastPolledAt) : "never"}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center justify-end gap-2 text-xs">
+                      <button
+                        onClick={() => runBackfill(a)}
+                        disabled={busyId === a.id}
+                        className="text-slate-600 hover:text-brand-600 disabled:opacity-50"
+                      >
+                        Backfill
+                      </button>
+                      <button
+                        onClick={() => toggleStatus(a)}
+                        disabled={busyId === a.id}
+                        className="text-slate-600 hover:text-amber-600 disabled:opacity-50"
+                      >
+                        {a.status === "active" ? "Pause" : "Resume"}
+                      </button>
+                      <button
+                        onClick={() => remove(a)}
+                        disabled={busyId === a.id}
+                        className="text-slate-600 hover:text-red-600 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {accounts.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                    No accounts yet — add some above.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}

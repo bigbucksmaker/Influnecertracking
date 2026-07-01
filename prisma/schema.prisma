@@ -1,0 +1,171 @@
+// Atomik Growth — Influencer Tracking
+// Kept intentionally SQLite- AND Postgres-compatible:
+//   - no enums (Strings with documented values)
+//   - no scalar lists (join tables instead)
+//   - no Json columns
+// To deploy on Postgres: change `provider` to "postgresql" and point
+// DATABASE_URL at Neon / Vercel Postgres, then run `prisma db push`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A tracked X account on the shared team watchlist.
+model Account {
+  id             String    @id @default(cuid())
+  username       String    @unique // stored lowercased, no leading @
+  xUserId        String?   @unique
+  displayName    String?
+  profilePicture String?
+  description    String?
+  isBlueVerified Boolean   @default(false)
+  verifiedType   String?
+  xCreatedAt     DateTime?
+
+  status      String  @default("active") // active | paused
+  pollingTier String  @default("active") // active | dormant (derived from lastPostedAt)
+
+  lastPostedAt DateTime?
+  lastPolledAt DateTime?
+  backfilledAt DateTime?
+  addedBy      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots     AccountSnapshot[]
+  posts         Post[]
+  postSnapshots PostSnapshot[]
+  tags          AccountTag[]
+  apiCalls      ApiCallLog[]
+
+  @@index([status])
+  @@index([pollingTier])
+  @@index([lastPolledAt])
+}
+
+/// A niche/label. Many-to-many with accounts via AccountTag.
+model Tag {
+  id        String       @id @default(cuid())
+  name      String       @unique
+  createdAt DateTime     @default(now())
+  accounts  AccountTag[]
+}
+
+model AccountTag {
+  accountId String
+  tagId     String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([accountId, tagId])
+  @@index([tagId])
+}
+
+/// Point-in-time profile metrics (the follower/following/post-count time series).
+model AccountSnapshot {
+  id              String   @id @default(cuid())
+  accountId       String
+  capturedAt      DateTime @default(now())
+  followers       Int
+  following       Int
+  statusesCount   Int
+  mediaCount      Int      @default(0)
+  favouritesCount Int      @default(0)
+  source          String   @default("poll") // poll | backfill | manual
+  apiCallId       String?
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, capturedAt])
+  @@index([accountId, capturedAt])
+}
+
+/// One row per tweet we track. Immutable-ish attributes + freeze state.
+model Post {
+  id            String    @id // the tweet id from the API
+  accountId     String
+  text          String    @default("")
+  postedAt      DateTime
+  lang          String?
+  isReply       Boolean   @default(false)
+  url           String?
+  firstSeenAt   DateTime  @default(now())
+  isFrozen      Boolean   @default(false) // true once older than freeze window & final snapshot taken
+  frozenAt      DateTime?
+  lastMetricsAt DateTime?
+
+  account   Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  snapshots PostSnapshot[]
+
+  @@index([accountId, postedAt])
+  @@index([isFrozen])
+  @@index([postedAt])
+}
+
+/// Point-in-time metrics for a single tweet (the per-post time series).
+model PostSnapshot {
+  id            String   @id @default(cuid())
+  postId        String
+  accountId     String // denormalized for fast per-account aggregation
+  capturedAt    DateTime @default(now())
+  viewCount     Int      @default(0)
+  likeCount     Int      @default(0)
+  retweetCount  Int      @default(0)
+  replyCount    Int      @default(0)
+  quoteCount    Int      @default(0)
+  bookmarkCount Int      @default(0)
+  engagements   Int      @default(0) // like+retweet+reply+quote+bookmark, precomputed
+  source        String   @default("poll") // poll | backfill | manual | refresh
+  apiCallId     String?
+
+  post    Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, capturedAt])
+  @@index([accountId, capturedAt])
+  @@index([postId, capturedAt])
+}
+
+/// Every call we make to the data provider, for cost tracking.
+model ApiCallLog {
+  id               String   @id @default(cuid())
+  endpoint         String // user_info | user_last_tweets | advanced_search | tweets_by_ids | balance
+  accountId        String?
+  purpose          String   @default("poll") // poll | backfill | manual | refresh | add
+  itemsReturned    Int      @default(0)
+  creditsCharged   Int      @default(0)
+  estimatedCostUsd Float    @default(0)
+  ok               Boolean  @default(true)
+  httpStatus       Int?
+  errorMessage     String?
+  durationMs       Int?
+  requestedAt      DateTime @default(now())
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([requestedAt])
+  @@index([endpoint])
+  @@index([accountId])
+}
+
+/// Single-row app configuration (id is always "singleton").
+model AppSettings {
+  id               String   @id @default("singleton")
+  reachWeight      Float    @default(0.5)
+  engagementWeight Float    @default(0.5)
+  planCapCredits   Int      @default(11290000) // twitterapi.io Builder plan
+  activeWindowHours Int     @default(48) // posted within → "active" tier
+  activePollHours  Int      @default(3)
+  dormantPollHours Int      @default(24)
+  freezeAgeDays    Int      @default(3) // stop re-polling posts older than this
+  backfillDays     Int      @default(7)
+  normalization    String   @default("percentile") // percentile | zscore
+  includeReplies   Boolean  @default(false)
+  updatedAt        DateTime @updatedAt
+}
