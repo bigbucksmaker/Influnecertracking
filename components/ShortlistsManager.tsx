@@ -52,27 +52,27 @@ export function ShortlistsManager({
   return (
     <div className="space-y-5">
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">New shortlist</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">New shortlist</h2>
+        <p className="mt-1 text-xs text-subtle">
           Save candidate creators for a campaign. Metrics shown are reach, engagement, median &
           consistency only — campaign rates are never included.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="block">
-            <span className="text-xs text-slate-500">Shortlist name</span>
+            <span className="text-xs text-subtle">Shortlist name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Q3 AI creators"
-              className="mt-1 block w-56 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              className="mt-1 block w-56 rounded-lg border border-line px-3 py-1.5 text-sm"
             />
           </label>
           <label className="block">
-            <span className="text-xs text-slate-500">Campaign (optional)</span>
+            <span className="text-xs text-subtle">Campaign (optional)</span>
             <select
               value={campaignId}
               onChange={(e) => setCampaignId(e.target.value)}
-              className="mt-1 block rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              className="mt-1 block rounded-lg border border-line px-3 py-1.5 text-sm"
             >
               <option value="">— none —</option>
               {campaigns.map((c) => (
@@ -85,18 +85,18 @@ export function ShortlistsManager({
           <button
             onClick={create}
             disabled={busy}
-            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
           >
             Create shortlist
           </button>
-          {err && <span className="text-sm text-red-600">{err}</span>}
+          {err && <span className="text-sm text-neg">{err}</span>}
         </div>
       </Card>
 
       {shortlists.length === 0 ? (
-        <Card className="p-10 text-center text-sm text-slate-500">
+        <Card className="p-10 text-center text-sm text-subtle">
           No shortlists yet. Create one above, then add creators from the{" "}
-          <Link href="/leaderboard" className="text-brand-600 hover:underline">
+          <Link href="/leaderboard" className="text-accent-400 hover:underline">
             leaderboard
           </Link>{" "}
           (☆ button) or by handle below.
@@ -157,11 +157,11 @@ function ShortlistCard({ shortlist }: { shortlist: ShortlistView }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-slate-900">{shortlist.name}</h3>
+          <h3 className="text-sm font-semibold text-fg">{shortlist.name}</h3>
           {shortlist.campaignName && <Badge color="purple">{shortlist.campaignName}</Badge>}
-          <span className="text-xs text-slate-400">{shortlist.items.length} creators</span>
+          <span className="text-xs text-subtle">{shortlist.items.length} creators</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
@@ -170,31 +170,31 @@ function ShortlistCard({ shortlist }: { shortlist: ShortlistView }) {
               onChange={(e) => setHandle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addByHandle()}
               placeholder="add @handle"
-              className="w-32 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+              className="w-32 rounded-lg border border-line px-2 py-1 text-sm"
             />
             <button
               onClick={addByHandle}
               disabled={busy}
-              className="rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-600 hover:bg-slate-100"
+              className="rounded-lg border border-line px-2 py-1 text-sm text-muted hover:bg-surface-2"
             >
               ＋
             </button>
           </div>
           <button
             onClick={() => downloadCsv(shortlist)}
-            className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+            className="rounded-lg border border-line px-3 py-1 text-sm text-muted hover:bg-surface-2"
           >
             Export CSV
           </button>
-          <button onClick={del} className="rounded-lg border border-red-200 px-3 py-1 text-sm text-red-600 hover:bg-red-50">
+          <button onClick={del} className="rounded-lg border border-neg/40 px-3 py-1 text-sm text-neg hover:bg-neg-soft">
             Delete
           </button>
         </div>
       </div>
-      {err && <p className="px-5 py-2 text-sm text-red-600">{err}</p>}
+      {err && <p className="px-5 py-2 text-sm text-neg">{err}</p>}
       <div className="scroll-thin overflow-x-auto">
         <table className="data w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50">
+          <thead className="border-b border-line bg-surface-2">
             <tr>
               <th className="px-3 py-2 text-left">Creator</th>
               <th className="px-3 py-2 text-right">Score</th>
@@ -212,7 +212,7 @@ function ShortlistCard({ shortlist }: { shortlist: ShortlistView }) {
             ))}
             {shortlist.items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-subtle">
                   No creators yet. Add by handle above, or use the ☆ button on the leaderboard.
                 </td>
               </tr>
@@ -225,7 +225,7 @@ function ShortlistCard({ shortlist }: { shortlist: ShortlistView }) {
 }
 
 function steadiness(c: number | null) {
-  if (c == null) return <span className="text-slate-300">—</span>;
+  if (c == null) return <span className="text-subtle">—</span>;
   if (c < 0.5) return <Badge color="green">steady</Badge>;
   if (c < 1.0) return <Badge color="slate">normal</Badge>;
   return <Badge color="amber">spiky</Badge>;
@@ -233,13 +233,13 @@ function steadiness(c: number | null) {
 
 function ItemRow({ it, onRemove, busy }: { it: ShortlistItemView; onRemove: () => void; busy: boolean }) {
   return (
-    <tr className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 ${it.lowConfidence ? "opacity-60" : ""}`}>
+    <tr className={`border-b border-line-soft last:border-0 hover:bg-surface-2 ${it.lowConfidence ? "opacity-60" : ""}`}>
       <td className="px-3 py-2">
         <Link href={`/influencer/${it.username}`} className="flex items-center gap-2">
           <Avatar src={it.profilePicture} alt={it.username} size={24} />
           <span className="min-w-0">
-            <span className="block truncate font-medium text-slate-900">{it.displayName ?? it.username}</span>
-            <span className="block truncate text-xs text-slate-500">@{it.username}</span>
+            <span className="block truncate font-medium text-fg">{it.displayName ?? it.username}</span>
+            <span className="block truncate text-xs text-subtle">@{it.username}</span>
           </span>
         </Link>
       </td>
@@ -248,9 +248,9 @@ function ItemRow({ it, onRemove, busy }: { it: ShortlistItemView; onRemove: () =
       <td className="px-3 py-2 text-right tabular-nums">{formatNumber(it.medianViews)}</td>
       <td className="px-3 py-2">{steadiness(it.consistency)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{formatPct(it.erImpressions)}</td>
-      <td className="px-3 py-2 text-slate-500">{it.note ?? ""}</td>
+      <td className="px-3 py-2 text-subtle">{it.note ?? ""}</td>
       <td className="px-3 py-2 text-right">
-        <button onClick={onRemove} disabled={busy} className="text-xs text-red-600 hover:underline">
+        <button onClick={onRemove} disabled={busy} className="text-xs text-neg hover:underline">
           remove
         </button>
       </td>

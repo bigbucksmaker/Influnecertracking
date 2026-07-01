@@ -49,18 +49,18 @@ export function AddToShortlist({ username }: { username: string }) {
           load();
         }}
         title="Add to shortlist"
-        className="text-xs text-slate-400 hover:text-brand-600"
+        className="text-xs text-subtle hover:text-accent-400"
       >
         {state === "added" ? "★" : "☆"}
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg">
+          <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-line bg-surface py-1 text-left shadow-lg">
             {lists == null ? (
-              <div className="px-3 py-2 text-xs text-slate-400">Loading…</div>
+              <div className="px-3 py-2 text-xs text-subtle">Loading…</div>
             ) : lists.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-500">
+              <div className="px-3 py-2 text-xs text-subtle">
                 No shortlists yet. Create one on the Shortlists page.
               </div>
             ) : (
@@ -68,7 +68,7 @@ export function AddToShortlist({ username }: { username: string }) {
                 <button
                   key={l.id}
                   onClick={() => add(l.id)}
-                  className="block w-full truncate px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  className="block w-full truncate px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2"
                 >
                   {l.name}
                 </button>

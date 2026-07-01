@@ -30,7 +30,7 @@ const COLUMNS: Column[] = [
     sortVal: (r) => r.performanceScore,
     render: (r) => (
       <span className="inline-flex items-center gap-1">
-        <span className="font-semibold text-slate-900">{r.performanceScore}</span>
+        <span className="font-semibold text-fg">{r.performanceScore}</span>
         {r.lowConfidence && (
           <span title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}>
             <Badge color="amber">⚠</Badge>
@@ -70,7 +70,7 @@ const COLUMNS: Column[] = [
     render: (r) => (
       <div className="leading-tight">
         <div>{formatNumber(r.medianViews)}</div>
-        <div className="text-[10px] text-slate-400" title="25th-percentile views/post (floor)">
+        <div className="text-[10px] text-subtle" title="25th-percentile views/post (floor)">
           p25 {formatNumber(r.p25Views)}
         </div>
       </div>
@@ -155,7 +155,7 @@ const COLUMNS: Column[] = [
     key: "polled",
     label: "Last poll",
     sortVal: (r) => r.lastPolledAt,
-    render: (r) => <span className="text-slate-500">{r.lastPolledAt ? relativeTime(r.lastPolledAt) : "never"}</span>,
+    render: (r) => <span className="text-subtle">{r.lastPolledAt ? relativeTime(r.lastPolledAt) : "never"}</span>,
   },
 ];
 
@@ -227,12 +227,12 @@ export function LeaderboardTable({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search handle or name…"
-          className="w-56 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="w-56 rounded-lg border border-line px-3 py-1.5 text-sm"
         />
         <select
           value={tag}
           onChange={(e) => setTag(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="rounded-lg border border-line px-3 py-1.5 text-sm"
         >
           <option value="">All niches</option>
           {allTags.map((t) => (
@@ -244,7 +244,7 @@ export function LeaderboardTable({
         <select
           value={tier}
           onChange={(e) => setTier(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="rounded-lg border border-line px-3 py-1.5 text-sm"
         >
           <option value="">All tiers</option>
           <option value="active">Active</option>
@@ -253,7 +253,7 @@ export function LeaderboardTable({
         <select
           value={direction}
           onChange={(e) => setDirection(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="rounded-lg border border-line px-3 py-1.5 text-sm"
           title="Filter by week-over-week direction"
         >
           <option value="">All directions</option>
@@ -261,36 +261,36 @@ export function LeaderboardTable({
           <option value="falling">Falling ▼</option>
           <option value="flat">Flat</option>
         </select>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600">
+        <label className="flex items-center gap-1.5 text-sm text-muted">
           <input type="checkbox" checked={risingOnly} onChange={(e) => setRisingOnly(e.target.checked)} />
           Rising only
         </label>
-        <span className="ml-auto text-xs text-slate-500">{filtered.length} shown</span>
+        <span className="ml-auto text-xs text-subtle">{filtered.length} shown</span>
         <button
           onClick={() => downloadCsv(filtered)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-surface-2"
         >
           Export CSV
         </button>
       </div>
 
-      <div className="scroll-thin overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div className="scroll-thin overflow-x-auto rounded-xl border border-line bg-surface">
         <table className="data w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50">
+          <thead className="border-b border-line bg-surface-2">
             <tr>
-              <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2">Account</th>
+              <th className="sticky left-0 z-10 bg-surface-2 px-3 py-2">Account</th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
                   onClick={() => toggleSort(c.key)}
                   title={c.title}
                   className={clsx(
-                    "cursor-pointer px-3 py-2 hover:text-slate-700",
+                    "cursor-pointer px-3 py-2 hover:text-muted",
                     c.numeric ? "text-right" : "text-left",
                   )}
                 >
                   {c.label}
-                  {sortKey === c.key && <span className="ml-1 text-slate-400">{sortDir === "asc" ? "▲" : "▼"}</span>}
+                  {sortKey === c.key && <span className="ml-1 text-subtle">{sortDir === "asc" ? "▲" : "▼"}</span>}
                 </th>
               ))}
               <th className="px-3 py-2 text-right">Edit</th>
@@ -301,18 +301,18 @@ export function LeaderboardTable({
               <tr
                 key={r.accountId}
                 className={clsx(
-                  "border-b border-slate-100 last:border-0 hover:bg-slate-50",
+                  "border-b border-line-soft last:border-0 hover:bg-surface-2",
                   r.lowConfidence && "opacity-55",
                 )}
               >
-                <td className="sticky left-0 z-10 bg-white px-3 py-2">
+                <td className="sticky left-0 z-10 bg-surface px-3 py-2">
                   <Link href={`/influencer/${r.username}`} className="flex items-center gap-2">
                     <Avatar src={r.profilePicture} alt={r.username} size={28} />
                     <span className="min-w-0">
-                      <span className="block max-w-[180px] truncate font-medium text-slate-900">
+                      <span className="block max-w-[180px] truncate font-medium text-fg">
                         {r.displayName ?? r.username}
                       </span>
-                      <span className="flex items-center gap-1 truncate text-xs text-slate-500">
+                      <span className="flex items-center gap-1 truncate text-xs text-subtle">
                         @{r.username}
                         {r.lowConfidence && (
                           <span title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}>
@@ -333,7 +333,7 @@ export function LeaderboardTable({
                     <AddToShortlist username={r.username} />
                     <button
                       onClick={() => setEditing(r)}
-                      className="text-xs text-brand-600 hover:underline"
+                      className="text-xs text-accent-400 hover:underline"
                       title="Edit rates"
                     >
                       ✎ rates
@@ -344,7 +344,7 @@ export function LeaderboardTable({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length + 2} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={COLUMNS.length + 2} className="px-3 py-10 text-center text-subtle">
                   No accounts match your filters.
                 </td>
               </tr>
@@ -371,8 +371,8 @@ export function LeaderboardTable({
 }
 
 function Delta({ abs, pct }: { abs: number | null; pct: number | null }) {
-  if (abs == null) return <span className="text-slate-400">—</span>;
-  const tone = abs > 0 ? "text-emerald-600" : abs < 0 ? "text-red-600" : "text-slate-500";
+  if (abs == null) return <span className="text-subtle">—</span>;
+  const tone = abs > 0 ? "text-pos" : abs < 0 ? "text-neg" : "text-subtle";
   return (
     <span className={tone}>
       {abs > 0 ? "+" : ""}
@@ -383,12 +383,12 @@ function Delta({ abs, pct }: { abs: number | null; pct: number | null }) {
 }
 
 function Signed({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-slate-400">—</span>;
-  return <span className={pct > 0 ? "text-emerald-600" : pct < 0 ? "text-red-600" : "text-slate-500"}>{formatSignedPct(pct)}</span>;
+  if (pct == null) return <span className="text-subtle">—</span>;
+  return <span className={pct > 0 ? "text-pos" : pct < 0 ? "text-neg" : "text-subtle"}>{formatSignedPct(pct)}</span>;
 }
 
 function Steadiness({ c }: { c: number | null }) {
-  if (c == null) return <span className="text-slate-300">—</span>;
+  if (c == null) return <span className="text-subtle">—</span>;
   if (c < 0.5) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="green">steady</Badge></span>;
   if (c < 1.0) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="slate">normal</Badge></span>;
   return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="amber">spiky</Badge></span>;

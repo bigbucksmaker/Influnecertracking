@@ -9,7 +9,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={clsx("rounded-xl border border-slate-200 bg-white shadow-sm", className)}>
+    <div className={clsx("rounded-xl border border-line bg-surface shadow-panel", className)}>
       {children}
     </div>
   );
@@ -27,16 +27,16 @@ export function StatCard({
   tone?: "default" | "good" | "warn" | "bad";
 }) {
   const toneCls = {
-    default: "text-slate-900",
-    good: "text-emerald-600",
-    warn: "text-amber-600",
-    bad: "text-red-600",
+    default: "text-fg",
+    good: "text-pos",
+    warn: "text-warn",
+    bad: "text-neg",
   }[tone];
   return (
     <Card className="p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={clsx("mt-1 text-2xl font-semibold", toneCls)}>{value}</div>
-      {sub != null && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
+      <div className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-subtle">{label}</div>
+      <div className={clsx("mt-1 font-mono text-2xl font-medium tabular-nums tracking-tight", toneCls)}>{value}</div>
+      {sub != null && <div className="mt-1 text-xs text-subtle">{sub}</div>}
     </Card>
   );
 }
@@ -49,15 +49,15 @@ export function Badge({
   color?: "slate" | "blue" | "green" | "amber" | "red" | "purple";
 }) {
   const map = {
-    slate: "bg-slate-100 text-slate-700",
-    blue: "bg-blue-100 text-blue-700",
-    green: "bg-emerald-100 text-emerald-700",
-    amber: "bg-amber-100 text-amber-700",
-    red: "bg-red-100 text-red-700",
-    purple: "bg-purple-100 text-purple-700",
+    slate: "bg-surface-2 text-muted",
+    blue: "bg-accent-soft text-accent-400",
+    green: "bg-pos-soft text-pos",
+    amber: "bg-warn-soft text-warn",
+    red: "bg-neg-soft text-neg",
+    purple: "bg-accent-soft text-accent-400",
   }[color];
   return (
-    <span className={clsx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", map)}>
+    <span className={clsx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", map)}>
       {children}
     </span>
   );
@@ -74,13 +74,13 @@ export function ProgressBar({
 }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   const bar = {
-    blue: "bg-brand-500",
-    amber: "bg-amber-500",
-    red: "bg-red-500",
-    green: "bg-emerald-500",
+    blue: "bg-accent",
+    amber: "bg-warn",
+    red: "bg-neg",
+    green: "bg-pos",
   }[tone];
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+    <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
       <div className={clsx("h-full rounded-full", bar)} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -103,7 +103,7 @@ export function Avatar({
         alt={alt}
         width={size}
         height={size}
-        className="rounded-full bg-slate-100 object-cover"
+        className="rounded-full bg-surface-2 object-cover ring-1 ring-line-soft"
         style={{ width: size, height: size }}
       />
     );
@@ -111,8 +111,8 @@ export function Avatar({
   const initial = alt.replace(/^@/, "").charAt(0).toUpperCase();
   return (
     <div
-      className="flex items-center justify-center rounded-full bg-slate-200 text-slate-600"
-      style={{ width: size, height: size, fontSize: size * 0.45 }}
+      className="flex items-center justify-center rounded-full bg-surface-2 font-medium text-muted ring-1 ring-line-soft"
+      style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
       {initial}
     </div>
@@ -134,7 +134,7 @@ export function Sparkline({
   const pts = values.filter((v) => Number.isFinite(v));
   const nonZero = pts.some((v) => v > 0);
   if (pts.length < 2 || !nonZero) {
-    return <span className="text-xs text-slate-300">—</span>;
+    return <span className="text-xs text-subtle">—</span>;
   }
   const max = Math.max(...pts);
   const min = Math.min(...pts);
@@ -150,7 +150,7 @@ export function Sparkline({
   const d = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const first = pts[0];
   const last = pts[pts.length - 1];
-  const stroke = last > first ? "#059669" : last < first ? "#dc2626" : "#94a3b8";
+  const stroke = last > first ? "#37C08A" : last < first ? "#F0616D" : "#616772";
   const [lx, ly] = coords[coords.length - 1];
   return (
     <svg width={width} height={height} className={clsx("inline-block align-middle", className)} aria-hidden>
@@ -172,8 +172,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+        <h1 className="text-2xl font-semibold tracking-[-0.015em] text-fg">{title}</h1>
+        {description && <p className="mt-1 text-sm text-subtle">{description}</p>}
       </div>
       {actions}
     </div>
@@ -193,12 +193,12 @@ export function EmptyState({
 }) {
   return (
     <Card className="p-10 text-center">
-      <div className="text-lg font-medium text-slate-800">{title}</div>
-      {children && <div className="mx-auto mt-2 max-w-md text-sm text-slate-500">{children}</div>}
+      <div className="text-lg font-medium text-fg">{title}</div>
+      {children && <div className="mx-auto mt-2 max-w-md text-sm text-subtle">{children}</div>}
       {href && cta && (
         <Link
           href={href}
-          className="mt-4 inline-flex rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+          className="mt-4 inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600"
         >
           {cta}
         </Link>

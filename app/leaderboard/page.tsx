@@ -47,7 +47,7 @@ export default async function LeaderboardPage({
         title="Leaderboard"
         description={`Performance Score = ${reachPct}% median reach + ${engPct}% engagement rate, ${settings.normalization}-normalized over the trailing 7 days. Sort or filter by any column.`}
         actions={
-          <Link href="/settings" className="text-sm text-brand-600 hover:underline">
+          <Link href="/settings" className="text-sm text-accent-400 hover:underline">
             Adjust weights →
           </Link>
         }

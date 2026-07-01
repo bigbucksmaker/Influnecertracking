@@ -3,25 +3,61 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
+}
+
+html {
+  background-color: theme("colors.bg");
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-bg text-fg antialiased font-sans;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-/* thin, tasteful scrollbars for the data tables */
+/* All numerics line up in tables and stat readouts. */
+.tnum,
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin, dark scrollbars for the data tables. */
 .scroll-thin::-webkit-scrollbar {
-  height: 8px;
-  width: 8px;
+  height: 9px;
+  width: 9px;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 rounded;
+  @apply rounded bg-line;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  @apply bg-subtle;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
 }
 
+/* Data tables */
 table.data th {
-  @apply text-left font-medium text-slate-500 whitespace-nowrap select-none;
+  @apply select-none whitespace-nowrap text-left text-xs font-medium uppercase tracking-wide text-subtle;
 }
 table.data td {
   @apply whitespace-nowrap;
+}
+
+/* Keyboard focus — visible, on-brand, never on mouse click. */
+:focus-visible {
+  outline: 2px solid theme("colors.accent.DEFAULT");
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: rgba(124, 109, 247, 0.32);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

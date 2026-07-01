@@ -140,8 +140,8 @@ export function AccountsManager({
   return (
     <div className="space-y-6">
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Add influencers</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Add influencers</h2>
+        <p className="mt-1 text-xs text-subtle">
           Paste handles, @mentions, or profile URLs — separated by commas, spaces, or newlines. Each
           new handle is backfilled with the last 7 days of posts.
         </p>
@@ -151,21 +151,21 @@ export function AccountsManager({
             onChange={(e) => setInput(e.target.value)}
             rows={3}
             placeholder="elonmusk, @naval&#10;https://x.com/paulg"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-line px-3 py-2 text-sm"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Rates ($, optional):</span>
-            <input type="number" min={0} value={rateQt} onChange={(e) => setRateQt(e.target.value)} placeholder="Quote tweet" className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
-            <input type="number" min={0} value={ratePost} onChange={(e) => setRatePost(e.target.value)} placeholder="Post" className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
-            <input type="number" min={0} value={rateRt} onChange={(e) => setRateRt(e.target.value)} placeholder="Retweet" className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
-            <input type="number" min={0} value={rateTh} onChange={(e) => setRateTh(e.target.value)} placeholder="Thread" className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+            <span className="text-xs font-medium text-subtle">Rates ($, optional):</span>
+            <input type="number" min={0} value={rateQt} onChange={(e) => setRateQt(e.target.value)} placeholder="Quote tweet" className="w-28 rounded-lg border border-line px-2 py-1 text-sm" />
+            <input type="number" min={0} value={ratePost} onChange={(e) => setRatePost(e.target.value)} placeholder="Post" className="w-20 rounded-lg border border-line px-2 py-1 text-sm" />
+            <input type="number" min={0} value={rateRt} onChange={(e) => setRateRt(e.target.value)} placeholder="Retweet" className="w-24 rounded-lg border border-line px-2 py-1 text-sm" />
+            <input type="number" min={0} value={rateTh} onChange={(e) => setRateTh(e.target.value)} placeholder="Thread" className="w-24 rounded-lg border border-line px-2 py-1 text-sm" />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <input
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="Niche tags (e.g. AI, Crypto)"
-              className="w-64 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              className="w-64 rounded-lg border border-line px-3 py-1.5 text-sm"
               list="tag-suggestions"
             />
             <datalist id="tag-suggestions">
@@ -173,31 +173,31 @@ export function AccountsManager({
                 <option key={t} value={t} />
               ))}
             </datalist>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600">
+            <label className="flex items-center gap-1.5 text-sm text-muted">
               <input type="checkbox" checked={backfill} onChange={(e) => setBackfill(e.target.checked)} />
               Backfill last 7 days now
             </label>
             <button
               type="submit"
               disabled={busy}
-              className="ml-auto rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+              className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
             >
               {busy ? "Adding…" : "Add to watchlist"}
             </button>
           </div>
-          {msg && <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">{msg}</div>}
+          {msg && <div className="rounded-lg bg-surface-2 p-2 text-xs text-muted">{msg}</div>}
         </form>
       </Card>
 
       <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Watchlist <span className="text-slate-400">· {accounts.length}</span>
+        <div className="flex items-center justify-between border-b border-line px-5 py-3">
+          <h2 className="text-sm font-semibold text-fg">
+            Watchlist <span className="text-subtle">· {accounts.length}</span>
           </h2>
         </div>
         <div className="scroll-thin overflow-x-auto">
           <table className="data w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50">
+            <thead className="border-b border-line bg-surface-2">
               <tr>
                 <th className="px-4 py-2">Account</th>
                 <th className="px-4 py-2 text-left">Niches</th>
@@ -211,15 +211,15 @@ export function AccountsManager({
             </thead>
             <tbody>
               {accounts.map((a) => (
-                <tr key={a.id} className="border-b border-slate-100 last:border-0">
+                <tr key={a.id} className="border-b border-line-soft last:border-0">
                   <td className="px-4 py-2">
                     <Link href={`/influencer/${a.username}`} className="flex items-center gap-2">
                       <Avatar src={a.profilePicture} alt={a.username} size={28} />
                       <span>
-                        <span className="block font-medium text-slate-900">
+                        <span className="block font-medium text-fg">
                           {a.displayName ?? a.username}
                         </span>
-                        <span className="block text-xs text-slate-500">@{a.username}</span>
+                        <span className="block text-xs text-subtle">@{a.username}</span>
                       </span>
                       {a.status === "paused" && <Badge color="amber">paused</Badge>}
                     </Link>
@@ -231,7 +231,7 @@ export function AccountsManager({
                           {t}
                         </Badge>
                       ))}
-                      <button onClick={() => editTags(a)} className="text-xs text-brand-600 hover:underline">
+                      <button onClick={() => editTags(a)} className="text-xs text-accent-400 hover:underline">
                         edit
                       </button>
                     </div>
@@ -248,7 +248,7 @@ export function AccountsManager({
                       <Badge color="amber">pending</Badge>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-slate-500">
+                  <td className="px-4 py-2 text-subtle">
                     {a.lastPolledAt ? relativeTime(a.lastPolledAt) : "never"}
                   </td>
                   <td className="px-4 py-2">
@@ -256,21 +256,21 @@ export function AccountsManager({
                       <button
                         onClick={() => runBackfill(a)}
                         disabled={busyId === a.id}
-                        className="text-slate-600 hover:text-brand-600 disabled:opacity-50"
+                        className="text-muted hover:text-accent-400 disabled:opacity-50"
                       >
                         Backfill
                       </button>
                       <button
                         onClick={() => toggleStatus(a)}
                         disabled={busyId === a.id}
-                        className="text-slate-600 hover:text-amber-600 disabled:opacity-50"
+                        className="text-muted hover:text-warn disabled:opacity-50"
                       >
                         {a.status === "active" ? "Pause" : "Resume"}
                       </button>
                       <button
                         onClick={() => remove(a)}
                         disabled={busyId === a.id}
-                        className="rounded-md border border-red-200 px-2 py-1 font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        className="rounded-md border border-neg/40 px-2 py-1 font-medium text-neg hover:bg-neg-soft disabled:opacity-50"
                         title={`Delete @${a.username} and all its data`}
                       >
                         {busyId === a.id ? "Removing…" : "Remove"}
@@ -281,7 +281,7 @@ export function AccountsManager({
               ))}
               {accounts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-10 text-center text-subtle">
                     No accounts yet — add some above.
                   </td>
                 </tr>

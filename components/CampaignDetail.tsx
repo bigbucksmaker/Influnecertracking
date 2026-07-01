@@ -101,14 +101,14 @@ export function CampaignDetail({
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link href="/campaigns" className="text-sm text-slate-500 hover:text-slate-700">
+          <Link href="/campaigns" className="text-sm text-subtle hover:text-muted">
             ← All campaigns
           </Link>
           <div className="mt-1 flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900">{campaign.name}</h1>
+            <h1 className="text-2xl font-semibold text-fg">{campaign.name}</h1>
             <Badge color={campaign.status === "active" ? "green" : "slate"}>{campaign.status}</Badge>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-subtle">
             {campaign.client} · started {relativeTime(campaign.startDate)}
             {campaign.endDate && ` · ends ${relativeTime(campaign.endDate)}`}
           </p>
@@ -118,7 +118,7 @@ export function CampaignDetail({
             <button
               onClick={() => setStatus("closed")}
               disabled={busy}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+              className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-surface-2"
             >
               Close campaign
             </button>
@@ -126,7 +126,7 @@ export function CampaignDetail({
             <button
               onClick={() => setStatus("active")}
               disabled={busy}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+              className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-surface-2"
             >
               Reopen
             </button>
@@ -134,7 +134,7 @@ export function CampaignDetail({
           <button
             onClick={remove}
             disabled={busy}
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+            className="rounded-lg border border-neg/40 px-3 py-1.5 text-sm text-neg hover:bg-neg-soft"
           >
             Delete
           </button>
@@ -170,27 +170,27 @@ export function CampaignDetail({
 
       {/* Add placement */}
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Attach a commissioned post</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-semibold text-fg">Attach a commissioned post</h2>
+        <p className="mt-1 text-xs text-subtle">
           Paste the tweet URL or id. It&apos;s ingested once and tracked on an extended window. Price
           is stored for reference only and is never used in any delivery metric.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="block flex-1">
-            <span className="text-xs text-slate-500">Tweet URL or id</span>
+            <span className="text-xs text-subtle">Tweet URL or id</span>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="https://x.com/creator/status/123…"
-              className="mt-1 block w-full min-w-[220px] rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              className="mt-1 block w-full min-w-[220px] rounded-lg border border-line px-3 py-1.5 text-sm"
             />
           </label>
           <label className="block">
-            <span className="text-xs text-slate-500">Type</span>
+            <span className="text-xs text-subtle">Type</span>
             <select
               value={type}
               onChange={(e) => setType(e.target.value)}
-              className="mt-1 block rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              className="mt-1 block rounded-lg border border-line px-3 py-1.5 text-sm"
             >
               {TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -200,42 +200,42 @@ export function CampaignDetail({
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-slate-500">Price USD (ref only)</span>
+            <span className="text-xs text-subtle">Price USD (ref only)</span>
             <input
               type="number"
               min={0}
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="—"
-              className="mt-1 block w-28 rounded-lg border border-slate-300 px-3 py-1.5 text-sm tabular-nums"
+              className="mt-1 block w-28 rounded-lg border border-line px-3 py-1.5 text-sm tabular-nums"
             />
           </label>
           <label className="block">
-            <span className="text-xs text-slate-500">Note</span>
+            <span className="text-xs text-subtle">Note</span>
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="optional"
-              className="mt-1 block w-40 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              className="mt-1 block w-40 rounded-lg border border-line px-3 py-1.5 text-sm"
             />
           </label>
           <button
             onClick={addPlacement}
             disabled={busy}
-            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
           >
             {busy ? "Working…" : "Attach"}
           </button>
         </div>
-        {msg && <p className="mt-2 text-sm text-emerald-600">{msg}</p>}
-        {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+        {msg && <p className="mt-2 text-sm text-pos">{msg}</p>}
+        {err && <p className="mt-2 text-sm text-neg">{err}</p>}
       </Card>
 
       {/* Delivery distribution */}
       {campaign.deliveryDistribution.length > 0 && (
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-slate-900">Delivery distribution</h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <h2 className="text-sm font-semibold text-fg">Delivery distribution</h2>
+          <p className="mt-1 text-xs text-subtle">
             Each bar is a placement&apos;s views ÷ that creator&apos;s organic median. 1.0× = on par
             with their normal; below {formatRatio(underdeliverThreshold)} is flagged underdelivered.
           </p>
@@ -244,21 +244,21 @@ export function CampaignDetail({
               .filter((p) => p.deliveryRatioViews != null)
               .map((p) => (
                 <div key={p.id} className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 truncate text-xs text-slate-500">
+                  <span className="w-28 shrink-0 truncate text-xs text-subtle">
                     @{p.account.username}
                   </span>
-                  <div className="relative h-3 flex-1 rounded bg-slate-100">
+                  <div className="relative h-3 flex-1 rounded bg-surface-2">
                     <div
-                      className={`h-full rounded ${p.underdelivered ? "bg-red-400" : "bg-emerald-400"}`}
+                      className={`h-full rounded ${p.underdelivered ? "bg-neg" : "bg-pos"}`}
                       style={{ width: `${Math.min(100, ((p.deliveryRatioViews ?? 0) / maxRatio) * 100)}%` }}
                     />
                     <div
-                      className="absolute top-[-2px] h-[16px] w-px bg-slate-400"
+                      className="absolute top-[-2px] h-[16px] w-px bg-subtle"
                       style={{ left: `${Math.min(100, (1 / maxRatio) * 100)}%` }}
                       title="1.0× (organic median)"
                     />
                   </div>
-                  <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-600">
+                  <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted">
                     {formatRatio(p.deliveryRatioViews)}
                   </span>
                 </div>
@@ -268,9 +268,9 @@ export function CampaignDetail({
       )}
 
       {/* Placement table */}
-      <div className="scroll-thin overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div className="scroll-thin overflow-x-auto rounded-xl border border-line bg-surface">
         <table className="data w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50">
+          <thead className="border-b border-line bg-surface-2">
             <tr>
               <th className="px-3 py-2 text-left">Creator</th>
               <th className="px-3 py-2 text-left">Post</th>
@@ -292,7 +292,7 @@ export function CampaignDetail({
             ))}
             {campaign.placements.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-10 text-center text-subtle">
                   No placements yet. Attach a commissioned tweet above.
                 </td>
               </tr>
@@ -306,15 +306,15 @@ export function CampaignDetail({
 
 function PlacementRow({ p, onRemove, busy }: { p: PlacementDetail; onRemove: () => void; busy: boolean }) {
   return (
-    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+    <tr className="border-b border-line-soft last:border-0 hover:bg-surface-2">
       <td className="px-3 py-2">
         <Link href={`/influencer/${p.account.username}`} className="flex items-center gap-2">
           <Avatar src={p.account.profilePicture} alt={p.account.username} size={24} />
           <span className="min-w-0">
-            <span className="block truncate font-medium text-slate-900">
+            <span className="block truncate font-medium text-fg">
               {p.account.displayName ?? p.account.username}
             </span>
-            <span className="block truncate text-xs text-slate-500">@{p.account.username}</span>
+            <span className="block truncate text-xs text-subtle">@{p.account.username}</span>
           </span>
         </Link>
       </td>
@@ -324,13 +324,13 @@ function PlacementRow({ p, onRemove, busy }: { p: PlacementDetail; onRemove: () 
             href={p.post.url ?? `https://x.com/${p.account.username}/status/${p.post.id}`}
             target="_blank"
             rel="noreferrer"
-            className="text-brand-600 hover:underline"
+            className="text-accent-400 hover:underline"
           >
             {relativeTime(p.post.postedAt)}
             {p.post.isFrozen && <span className="ml-1"><Badge>frozen</Badge></span>}
           </a>
         ) : (
-          <span className="text-slate-400" title={p.note ?? undefined}>
+          <span className="text-subtle" title={p.note ?? undefined}>
             not linked
           </span>
         )}
@@ -344,12 +344,12 @@ function PlacementRow({ p, onRemove, busy }: { p: PlacementDetail; onRemove: () 
       </td>
       <td className="px-3 py-2 text-right tabular-nums">
         {p.deliveryRatioViews == null ? (
-          <span className="text-slate-400" title={p.baselineN === 0 ? "No organic baseline yet" : undefined}>
+          <span className="text-subtle" title={p.baselineN === 0 ? "No organic baseline yet" : undefined}>
             —
           </span>
         ) : (
           <span
-            className={p.underdelivered ? "font-medium text-red-600" : "text-slate-700"}
+            className={p.underdelivered ? "font-medium text-neg" : "text-muted"}
             title={`baseline median ${formatNumber(p.baselineMedianViews)} views (${p.baselineN} organic posts)`}
           >
             {formatRatio(p.deliveryRatioViews)}
@@ -357,11 +357,11 @@ function PlacementRow({ p, onRemove, busy }: { p: PlacementDetail; onRemove: () 
           </span>
         )}
       </td>
-      <td className="px-3 py-2 text-right tabular-nums text-slate-400">
+      <td className="px-3 py-2 text-right tabular-nums text-subtle">
         {p.priceUsd != null ? formatUsd(p.priceUsd) : "—"}
       </td>
       <td className="px-3 py-2 text-right">
-        <button onClick={onRemove} disabled={busy} className="text-xs text-red-600 hover:underline">
+        <button onClick={onRemove} disabled={busy} className="text-xs text-neg hover:underline">
           remove
         </button>
       </td>

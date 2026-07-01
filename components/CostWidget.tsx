@@ -9,8 +9,8 @@ export function CostWidget({ summary }: { summary: CostSummary }) {
     <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">Credit usage — {summary.monthLabel}</h2>
-          <p className="text-xs text-slate-500">
+          <h2 className="text-sm font-semibold text-fg">Credit usage — {summary.monthLabel}</h2>
+          <p className="text-xs text-subtle">
             Day {Math.floor(summary.daysElapsed)} of {summary.daysInMonth} ·{" "}
             {summary.currentPlan ? `${summary.currentPlan.name} plan` : "custom cap"}
           </p>
@@ -49,7 +49,7 @@ export function CostWidget({ summary }: { summary: CostSummary }) {
       </div>
 
       <div className="mt-4">
-        <div className="mb-1 flex justify-between text-xs text-slate-500">
+        <div className="mb-1 flex justify-between text-xs text-subtle">
           <span>Projected {formatPct(summary.projectedPctOfCap, 0)} of cap</span>
           <span>{formatCredits(summary.planCapCredits)}</span>
         </div>
@@ -57,7 +57,7 @@ export function CostWidget({ summary }: { summary: CostSummary }) {
       </div>
 
       {summary.overBudget && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="mt-4 rounded-lg border border-neg/40 bg-neg-soft p-3 text-sm text-neg">
           Projected spend ({formatCredits(summary.projectedMonth)}) will exceed your cap of{" "}
           {formatCredits(summary.planCapCredits)}.{" "}
           {summary.recommendedPlan
@@ -84,11 +84,11 @@ function Metric({
 }) {
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-0.5 text-lg font-semibold ${tone === "bad" ? "text-red-600" : "text-slate-900"}`}>
+      <div className="text-xs font-medium uppercase tracking-wide text-subtle">{label}</div>
+      <div className={`mt-0.5 text-lg font-semibold ${tone === "bad" ? "text-neg" : "text-fg"}`}>
         {value}
       </div>
-      {sub && <div className="text-xs text-slate-500">{sub}</div>}
+      {sub && <div className="text-xs text-subtle">{sub}</div>}
     </div>
   );
 }

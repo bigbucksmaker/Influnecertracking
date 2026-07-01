@@ -46,55 +46,55 @@ export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }
     <div className="space-y-4">
       <Card className="p-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">New campaign</h2>
-          <button onClick={() => setOpen((o) => !o)} className="text-xs text-brand-600 hover:underline">
+          <h2 className="text-sm font-semibold text-fg">New campaign</h2>
+          <button onClick={() => setOpen((o) => !o)} className="text-xs text-accent-400 hover:underline">
             {open ? "Hide" : "＋ Add campaign"}
           </button>
         </div>
         {open && (
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <label className="block">
-              <span className="text-xs text-slate-500">Campaign name</span>
+              <span className="text-xs text-subtle">Campaign name</span>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Q3 Launch push"
-                className="mt-1 block w-56 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                className="mt-1 block w-56 rounded-lg border border-line px-3 py-1.5 text-sm"
               />
             </label>
             <label className="block">
-              <span className="text-xs text-slate-500">Client</span>
+              <span className="text-xs text-subtle">Client</span>
               <input
                 value={client}
                 onChange={(e) => setClient(e.target.value)}
                 placeholder="Acme Inc"
-                className="mt-1 block w-48 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                className="mt-1 block w-48 rounded-lg border border-line px-3 py-1.5 text-sm"
               />
             </label>
             <label className="block">
-              <span className="text-xs text-slate-500">Start date</span>
+              <span className="text-xs text-subtle">Start date</span>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="mt-1 block rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                className="mt-1 block rounded-lg border border-line px-3 py-1.5 text-sm"
               />
             </label>
             <button
               onClick={create}
               disabled={saving}
-              className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
             >
               {saving ? "Creating…" : "Create campaign"}
             </button>
-            {err && <span className="text-sm text-red-600">{err}</span>}
+            {err && <span className="text-sm text-neg">{err}</span>}
           </div>
         )}
       </Card>
 
-      <div className="scroll-thin overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div className="scroll-thin overflow-x-auto rounded-xl border border-line bg-surface">
         <table className="data w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50">
+          <thead className="border-b border-line bg-surface-2">
             <tr>
               <th className="px-3 py-2 text-left">Campaign</th>
               <th className="px-3 py-2 text-left">Client</th>
@@ -110,20 +110,20 @@ export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }
           </thead>
           <tbody>
             {campaigns.map((c) => (
-              <tr key={c.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+              <tr key={c.id} className="border-b border-line-soft last:border-0 hover:bg-surface-2">
                 <td className="px-3 py-2">
-                  <Link href={`/campaigns/${c.id}`} className="font-medium text-brand-600 hover:underline">
+                  <Link href={`/campaigns/${c.id}`} className="font-medium text-accent-400 hover:underline">
                     {c.name}
                   </Link>
                 </td>
-                <td className="px-3 py-2 text-slate-600">{c.client}</td>
+                <td className="px-3 py-2 text-muted">{c.client}</td>
                 <td className="px-3 py-2">
                   <Badge color={c.status === "active" ? "green" : "slate"}>{c.status}</Badge>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {c.placementCount}
                   {c.linkedCount < c.placementCount && (
-                    <span className="ml-1 text-xs text-slate-400">({c.linkedCount} linked)</span>
+                    <span className="ml-1 text-xs text-subtle">({c.linkedCount} linked)</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatNumber(c.totalViews)}</td>
@@ -134,15 +134,15 @@ export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }
                   {c.underdeliverCount > 0 ? (
                     <Badge color="red">{c.underdeliverCount}</Badge>
                   ) : (
-                    <span className="text-slate-400">0</span>
+                    <span className="text-subtle">0</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right text-slate-500">{relativeTime(c.createdAt)}</td>
+                <td className="px-3 py-2 text-right text-subtle">{relativeTime(c.createdAt)}</td>
               </tr>
             ))}
             {campaigns.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-10 text-center text-subtle">
                   No campaigns yet. Create one above, then attach commissioned tweets to measure
                   delivery against each creator&apos;s organic baseline.
                 </td>

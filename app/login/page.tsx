@@ -11,24 +11,24 @@ export default async function LoginPage() {
   const domain = process.env.ALLOWED_EMAIL_DOMAIN ?? "atomikgrowth.com";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-surface-2 px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-500 text-lg font-bold text-white">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent text-lg font-bold text-white">
             A
           </span>
           <div>
-            <div className="font-semibold text-slate-900">Atomik Growth</div>
-            <div className="text-xs text-slate-500">Influencer Tracking</div>
+            <div className="font-semibold text-fg">Atomik Growth</div>
+            <div className="text-xs text-subtle">Influencer Tracking</div>
           </div>
         </div>
-        <h1 className="text-lg font-semibold text-slate-900">Sign in</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-lg font-semibold text-fg">Sign in</h1>
+        <p className="mt-1 text-sm text-subtle">
           Internal tool. Access is restricted to <b>@{domain}</b> Google accounts.
         </p>
 
         <form action={signInGoogle} className="mt-6">
-          <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface-2">
             <GoogleIcon />
             Continue with Google
           </button>
@@ -36,7 +36,7 @@ export default async function LoginPage() {
 
         {devBypass && (
           <form action={signInDev} className="mt-3">
-            <button className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800">
+            <button className="w-full rounded-lg bg-bg px-4 py-2.5 text-sm font-medium text-white hover:bg-surface-2">
               Dev sign in (local only)
             </button>
           </form>
