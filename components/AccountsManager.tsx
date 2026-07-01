@@ -17,6 +17,10 @@ export function AccountsManager({
   const [input, setInput] = useState("");
   const [tags, setTags] = useState("");
   const [backfill, setBackfill] = useState(true);
+  const [rateQt, setRateQt] = useState("");
+  const [ratePost, setRatePost] = useState("");
+  const [rateRt, setRateRt] = useState("");
+  const [rateTh, setRateTh] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -38,6 +42,10 @@ export function AccountsManager({
           input,
           tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
           backfill,
+          rateQuoteTweet: rateQt || null,
+          ratePost: ratePost || null,
+          rateRetweet: rateRt || null,
+          rateThread: rateTh || null,
         }),
       });
       const data = await res.json();
@@ -52,6 +60,10 @@ export function AccountsManager({
       setAccounts(data.accounts);
       setInput("");
       setTags("");
+      setRateQt("");
+      setRatePost("");
+      setRateRt("");
+      setRateTh("");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Failed to add");
     } finally {
@@ -115,6 +127,13 @@ export function AccountsManager({
             placeholder="elonmusk, @naval&#10;https://x.com/paulg"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Rates ($, optional):</span>
+            <input type="number" min={0} value={rateQt} onChange={(e) => setRateQt(e.target.value)} placeholder="Quote tweet" className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+            <input type="number" min={0} value={ratePost} onChange={(e) => setRatePost(e.target.value)} placeholder="Post" className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+            <input type="number" min={0} value={rateRt} onChange={(e) => setRateRt(e.target.value)} placeholder="Retweet" className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+            <input type="number" min={0} value={rateTh} onChange={(e) => setRateTh(e.target.value)} placeholder="Thread" className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <input
               value={tags}

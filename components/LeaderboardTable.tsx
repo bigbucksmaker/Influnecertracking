@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { clsx } from "clsx";
 import type { LeaderboardRow } from "@/lib/scoring";
 import { Avatar, Badge } from "./ui";
+import { RatesEditor, type Rates } from "./RatesEditor";
 import { formatNumber, formatFull, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
 
 type SortDir = "asc" | "desc";
@@ -81,6 +82,14 @@ const COLUMNS: Column[] = [
     render: (r) => r.postCount7d,
   },
   {
+    key: "qtRate",
+    label: "QT Rate",
+    numeric: true,
+    title: "Quote-tweet campaign rate (USD)",
+    sortVal: (r) => r.rateQuoteTweet,
+    render: (r) => (r.rateQuoteTweet != null ? `$${r.rateQuoteTweet}` : "—"),
+  },
+  {
     key: "wow",
     label: "WoW views",
     numeric: true,
@@ -110,12 +119,15 @@ const COLUMNS: Column[] = [
 ];
 
 export function LeaderboardTable({
-  rows,
+  rows: initialRows,
   allTags,
 }: {
   rows: LeaderboardRow[];
   allTags: string[];
 }) {
+  const [rows, setRows] = useState(initialRows);
+  useEffect(() => setRows(initialRows), [initialRows]);
+  const [editing, setEditing] = useState<LeaderboardRow | null>(null);
   const [sortKey, setSortKey] = useState("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [q, setQ] = useState("");
@@ -144,6 +156,15 @@ export function LeaderboardTable({
       setSortKey(key);
       setSortDir(key === "rank" ? "asc" : "desc");
     }
+  }
+
+  async function saveRates(accountId: string, r: Rates) {
+    await fetch(`/api/accounts/${accountId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(r),
+    });
+    setRows((prev) => prev.map((row) => (row.accountId === accountId ? { ...row, ...r } : row)));
   }
 
   return (
@@ -208,6 +229,7 @@ export function LeaderboardTable({
                   {sortKey === c.key && <span className="ml-1 text-slate-400">{sortDir === "asc" ? "▲" : "▼"}</span>}
                 </th>
               ))}
+              <th className="px-3 py-2 text-right">Edit</th>
             </tr>
           </thead>
           <tbody>
@@ -229,11 +251,20 @@ export function LeaderboardTable({
                     {c.render(r)}
                   </td>
                 ))}
+                <td className="px-3 py-2 text-right">
+                  <button
+                    onClick={() => setEditing(r)}
+                    className="text-xs text-brand-600 hover:underline"
+                    title="Edit rates"
+                  >
+                    ✎ rates
+                  </button>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length + 1} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={COLUMNS.length + 2} className="px-3 py-10 text-center text-slate-500">
                   No accounts match your filters.
                 </td>
               </tr>
@@ -241,6 +272,20 @@ export function LeaderboardTable({
           </tbody>
         </table>
       </div>
+
+      {editing && (
+        <RatesEditor
+          username={editing.username}
+          initial={{
+            rateQuoteTweet: editing.rateQuoteTweet,
+            ratePost: editing.ratePost,
+            rateRetweet: editing.rateRetweet,
+            rateThread: editing.rateThread,
+          }}
+          onSave={(r) => saveRates(editing.accountId, r)}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -274,6 +319,7 @@ function cmp(a: number | string | null, b: number | string | null, dir: SortDir)
 function downloadCsv(rows: LeaderboardRow[]) {
   const headers = [
     "rank", "username", "displayName", "performanceScore", "followers",
+    "rateQuoteTweet", "ratePost", "rateRetweet", "rateThread",
     "followerGrowth7d", "followerGrowth7dPct", "followerGrowth30d",
     "avgViews", "erImpressions", "erFollowers", "postCount7d", "wowViewsPct",
     "rising", "tags", "pollingTier", "lastPolledAt",
@@ -287,6 +333,7 @@ function downloadCsv(rows: LeaderboardRow[]) {
     lines.push(
       [
         r.rank, r.username, r.displayName ?? "", r.performanceScore, r.currentFollowers ?? "",
+        r.rateQuoteTweet ?? "", r.ratePost ?? "", r.rateRetweet ?? "", r.rateThread ?? "",
         r.followerGrowth7d ?? "", r.followerGrowth7dPct ?? "", r.followerGrowth30d ?? "",
         Math.round(r.avgViews), r.erImpressions, r.erFollowers, r.postCount7d, r.wowViewsPct ?? "",
         r.rising, r.tags.join("|"), r.pollingTier, r.lastPolledAt ?? "",

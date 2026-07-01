@@ -20,6 +20,10 @@ export interface LeaderboardRow {
 
   currentFollowers: number | null;
   following: number | null;
+  rateQuoteTweet: number | null;
+  ratePost: number | null;
+  rateRetweet: number | null;
+  rateThread: number | null;
   followerGrowth7d: number | null;
   followerGrowth7dPct: number | null;
   followerGrowth30d: number | null;
@@ -210,6 +214,10 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
       lastPolledAt: a.lastPolledAt ? a.lastPolledAt.toISOString() : null,
       currentFollowers,
       following,
+      rateQuoteTweet: a.rateQuoteTweet,
+      ratePost: a.ratePost,
+      rateRetweet: a.rateRetweet,
+      rateThread: a.rateThread,
       followerGrowth7d,
       followerGrowth7dPct,
       followerGrowth30d,

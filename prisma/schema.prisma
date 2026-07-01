@@ -32,6 +32,12 @@ model Account {
   backfilledAt DateTime?
   addedBy      String?
 
+  // Campaign rates (USD), from the roster CSV; editable in-app.
+  rateQuoteTweet Int?
+  ratePost       Int?
+  rateRetweet    Int?
+  rateThread     Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

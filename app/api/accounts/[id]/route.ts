@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/api";
-import { upsertTags } from "@/lib/accounts";
+import { upsertTags, parseRateInput } from "@/lib/accounts";
 import { revalidateTag } from "next/cache";
 import { CACHE_TAG } from "@/lib/cache";
 
@@ -17,8 +17,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const account = await prisma.account.findUnique({ where: { id } });
   if (!account) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const data: { status?: string } = {};
+  const data: {
+    status?: string;
+    rateQuoteTweet?: number | null;
+    ratePost?: number | null;
+    rateRetweet?: number | null;
+    rateThread?: number | null;
+  } = {};
   if (body.status === "active" || body.status === "paused") data.status = body.status;
+  for (const key of ["rateQuoteTweet", "ratePost", "rateRetweet", "rateThread"] as const) {
+    if (key in body) data[key] = parseRateInput(body[key]);
+  }
   if (Object.keys(data).length) await prisma.account.update({ where: { id }, data });
 
   // Replace the full tag set if `tags` is provided.
@@ -42,6 +51,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       username: updated.username,
       status: updated.status,
       tags: updated.tags.map((t) => t.tag.name),
+      rateQuoteTweet: updated.rateQuoteTweet,
+      ratePost: updated.ratePost,
+      rateRetweet: updated.rateRetweet,
+      rateThread: updated.rateThread,
     },
   });
 }

@@ -10,6 +10,10 @@ export interface AccountOverview {
   pollingTier: string;
   tags: string[];
   currentFollowers: number | null;
+  rateQuoteTweet: number | null;
+  ratePost: number | null;
+  rateRetweet: number | null;
+  rateThread: number | null;
   postCount: number;
   lastPolledAt: string | null;
   backfilledAt: string | null;
@@ -41,6 +45,10 @@ export async function getAccountsOverview(): Promise<AccountOverview[]> {
     pollingTier: a.pollingTier,
     tags: a.tags.map((t) => t.tag.name),
     currentFollowers: followersById.get(a.id) ?? null,
+    rateQuoteTweet: a.rateQuoteTweet,
+    ratePost: a.ratePost,
+    rateRetweet: a.rateRetweet,
+    rateThread: a.rateThread,
     postCount: a._count.posts,
     lastPolledAt: a.lastPolledAt ? a.lastPolledAt.toISOString() : null,
     backfilledAt: a.backfilledAt ? a.backfilledAt.toISOString() : null,
@@ -52,6 +60,13 @@ export async function getAccountsOverview(): Promise<AccountOverview[]> {
 export async function getAllTags(): Promise<string[]> {
   const tags = await prisma.tag.findMany({ orderBy: { name: "asc" }, select: { name: true } });
   return tags.map((t) => t.name);
+}
+
+/** Coerce a rate input (string/number/blank) to a non-negative integer USD or null. */
+export function parseRateInput(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
 }
 
 /** Create or connect tags by name, returning their ids. */

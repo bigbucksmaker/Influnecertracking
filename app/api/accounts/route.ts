@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/api";
 import { parseHandles } from "@/lib/handles";
-import { getAccountsOverview, upsertTags } from "@/lib/accounts";
+import { getAccountsOverview, upsertTags, parseRateInput } from "@/lib/accounts";
 import { backfillAccount } from "@/lib/polling";
 import { revalidateTag } from "next/cache";
 import { CACHE_TAG } from "@/lib/cache";
@@ -37,6 +37,12 @@ export async function POST(req: Request) {
 
   const tagIds = await upsertTags(Array.isArray(body.tags) ? body.tags : []);
   const doBackfill = body.backfill !== false;
+  const rates = {
+    rateQuoteTweet: parseRateInput(body.rateQuoteTweet),
+    ratePost: parseRateInput(body.ratePost),
+    rateRetweet: parseRateInput(body.rateRetweet),
+    rateThread: parseRateInput(body.rateThread),
+  };
 
   const created: { id: string; username: string }[] = [];
   const skipped: string[] = [];
@@ -59,6 +65,7 @@ export async function POST(req: Request) {
         username,
         addedBy: gate.email,
         status: "active",
+        ...rates,
         tags: { create: tagIds.map((id) => ({ tag: { connect: { id } } })) },
       },
     });
