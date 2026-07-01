@@ -54,7 +54,14 @@ const ASSIGN_SCHEMA = {
 } as const;
 
 function clip(text: string, n: number): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, n);
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, n)
+    // drop unpaired surrogates (e.g. an emoji cut in half by slice) so the
+    // request body stays valid JSON
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
 }
 
 function firstText(content: any[]): string {
@@ -66,17 +73,26 @@ function firstText(content: any[]): string {
 
 /** Propose a niche taxonomy from a sample of stored post text. Writes nothing. */
 export async function proposeNiches(): Promise<Niche[]> {
+  // Pull posts for ALL active accounts, then keep a few per account so the
+  // taxonomy reflects every influencer's content — not just the most prolific
+  // or most recent posters.
   const posts = await prisma.post.findMany({
     where: { account: { status: "active" }, isReply: false, text: { not: "" } },
     orderBy: { postedAt: "desc" },
-    take: 700,
-    select: { text: true, account: { select: { username: true } } },
+    select: { text: true, accountId: true, account: { select: { username: true } } },
   });
 
-  const sample = posts
-    .map((p) => `@${p.account.username}: ${clip(p.text, 200)}`)
+  const perAccount = new Map<string, { username: string; texts: string[] }>();
+  for (const p of posts) {
+    const e = perAccount.get(p.accountId) ?? { username: p.account.username, texts: [] };
+    if (e.texts.length < 4) e.texts.push(clip(p.text, 180));
+    perAccount.set(p.accountId, e);
+  }
+
+  const sample = [...perAccount.values()]
+    .map((e) => `@${e.username}: ${e.texts.join(" | ")}`)
     .join("\n")
-    .slice(0, 60000);
+    .slice(0, 200000); // ~50k-token safety cap; fits Sonnet's context easily
 
   const client = getAnthropic();
   const res = await client.messages.create({
@@ -87,11 +103,12 @@ export async function proposeNiches(): Promise<Niche[]> {
       {
         role: "user",
         content:
-          "We're a marketing agency that tracks X (Twitter) influencers for client campaigns. " +
-          "Below are sample posts (one per line, prefixed with the author's handle). " +
-          "Propose 8–14 distinct, mostly non-overlapping niche categories that best organize these creators " +
-          "by the topic/industry they post about. Use concise, marketer-friendly names (1–3 words each) " +
-          "and a one-line description for each.\n\nPOSTS:\n" +
+          "We're a marketing agency tracking X (Twitter) influencers for client campaigns. " +
+          "Below is ONE line per influencer we track — their handle followed by a few of their recent posts. " +
+          "Consider the FULL set of influencers, then propose 8–14 distinct, mostly non-overlapping niche " +
+          "categories that best organize this entire roster by the topic/industry they post about. " +
+          "Every influencer should plausibly fit at least one category. Use concise, marketer-friendly " +
+          "names (1–3 words each) with a one-line description for each.\n\nINFLUENCERS:\n" +
           sample,
       },
     ],
