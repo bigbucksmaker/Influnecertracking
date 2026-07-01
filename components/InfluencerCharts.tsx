@@ -31,17 +31,17 @@ export function InfluencerCharts({
 }: {
   followerSeries: FollowerPoint[];
   reachSeries: ReachPoint[];
-  distribution: ViewDistribution;
+  distribution?: ViewDistribution;
 }) {
   const [range, setRange] = useState<7 | 30>(30);
 
   const cutoff = Date.now() - range * DAY_MS;
   const followers = useMemo(
-    () => followerSeries.filter((p) => new Date(p.t).getTime() >= cutoff),
+    () => (followerSeries ?? []).filter((p) => new Date(p.t).getTime() >= cutoff),
     [followerSeries, cutoff],
   );
   const reach = useMemo(
-    () => reachSeries.filter((p) => new Date(p.t).getTime() >= cutoff),
+    () => (reachSeries ?? []).filter((p) => new Date(p.t).getTime() >= cutoff),
     [reachSeries, cutoff],
   );
 
@@ -114,8 +114,16 @@ export function InfluencerCharts({
   );
 }
 
-function ViewDistributionChart({ distribution }: { distribution: ViewDistribution }) {
-  const { points, median, p25, mean, maxViews, commissionedMarkers, domainDays } = distribution;
+function ViewDistributionChart({ distribution }: { distribution?: ViewDistribution }) {
+  const {
+    points = [],
+    median = 0,
+    p25 = 0,
+    mean = 0,
+    maxViews = 0,
+    commissionedMarkers = [],
+    domainDays = 7,
+  } = distribution ?? {};
   const maxPoint = points.find((p) => p.isMax) ?? null;
   const hasCommissioned = commissionedMarkers.length > 0;
   return (

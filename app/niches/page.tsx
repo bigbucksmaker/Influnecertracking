@@ -2,6 +2,7 @@ import { NicheManager } from "@/components/NicheManager";
 import { PageHeader } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts retry)
 
 export default function NichesPage() {
   const hasKey = !!process.env.ANTHROPIC_API_KEY;

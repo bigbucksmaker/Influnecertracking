@@ -6,6 +6,7 @@ import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { PageHeader, EmptyState } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts retry)
 
 export default async function LeaderboardPage({
   searchParams,

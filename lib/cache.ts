@@ -12,22 +12,28 @@ import { getShortlists } from "./shortlists";
 export const CACHE_TAG = "app-data";
 const OPTS = { revalidate: 120, tags: [CACHE_TAG] };
 
-export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard"], OPTS);
-export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary"], OPTS);
+// Cache-key version. Vercel's Data Cache PERSISTS across deployments, so if a
+// cached function's return SHAPE changes, bump this — otherwise a new build can
+// read a stale, old-shaped entry written by a previous deploy (e.g. a
+// LeaderboardRow missing viewsSparkline → `undefined.filter` at render time).
+const V = "v2";
+
+export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard", V], OPTS);
+export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary", V], OPTS);
 export const cachedAccountsOverview = unstable_cache(
   () => getAccountsOverview(),
-  ["accounts-overview"],
+  ["accounts-overview", V],
   OPTS,
 );
 export const cachedInfluencerDetail = unstable_cache(
   (username: string) => getInfluencerDetail(username),
-  ["influencer-detail"],
+  ["influencer-detail", V],
   OPTS,
 );
-export const cachedCampaigns = unstable_cache(() => getCampaignsOverview(), ["campaigns"], OPTS);
+export const cachedCampaigns = unstable_cache(() => getCampaignsOverview(), ["campaigns", V], OPTS);
 export const cachedCampaignDetail = unstable_cache(
   (id: string) => getCampaignDetail(id),
-  ["campaign-detail"],
+  ["campaign-detail", V],
   OPTS,
 );
-export const cachedShortlists = unstable_cache(() => getShortlists(), ["shortlists"], OPTS);
+export const cachedShortlists = unstable_cache(() => getShortlists(), ["shortlists", V], OPTS);

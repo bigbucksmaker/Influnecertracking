@@ -3,6 +3,7 @@ import { ShortlistsManager } from "@/components/ShortlistsManager";
 import { PageHeader } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts retry)
 
 export default async function ShortlistsPage() {
   const [shortlists, campaigns] = await Promise.all([cachedShortlists(), cachedCampaigns()]);

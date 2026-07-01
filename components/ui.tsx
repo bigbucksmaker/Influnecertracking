@@ -131,7 +131,7 @@ export function Sparkline({
   height?: number;
   className?: string;
 }) {
-  const pts = values.filter((v) => Number.isFinite(v));
+  const pts = (Array.isArray(values) ? values : []).filter((v) => Number.isFinite(v));
   const nonZero = pts.some((v) => v > 0);
   if (pts.length < 2 || !nonZero) {
     return <span className="text-xs text-slate-300">—</span>;

@@ -4,6 +4,7 @@ import { getSettings } from "@/lib/settings";
 import { CampaignDetail } from "@/components/CampaignDetail";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts retry)
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -7,6 +7,7 @@ import { Card, PageHeader, Badge } from "@/components/ui";
 import { formatCredits, formatUsd, formatNumber, formatPct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts retry)
 
 const ENDPOINT_LABELS: Record<string, string> = {
   user_info: "Profile (user/info)",
