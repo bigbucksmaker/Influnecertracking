@@ -70,6 +70,9 @@ function mapTweet(t: any): RawPostMetrics {
     postedAt: parseTwitterDate(t.createdAt) ?? new Date(),
     lang: t.lang ?? null,
     isReply: Boolean(t.isReply),
+    // A retweet carries the ORIGINAL author's metrics, not the retweeter's —
+    // detect via the retweeted_tweet object (fallback to the "RT @" text prefix).
+    isRetweet: Boolean(t.retweeted_tweet) || /^RT @[A-Za-z0-9_]+:/.test(t.text ?? ""),
     url: t.url ?? null,
     viewCount: toInt(t.viewCount),
     likeCount: toInt(t.likeCount),

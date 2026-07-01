@@ -101,6 +101,7 @@ function buildTweet(username: string, unixHour: number, now: number): RawPostMet
     postedAt: m.postedAt,
     lang: "en",
     isReply: false,
+    isRetweet: false,
     url: `https://x.com/${username}/status/${unixHour}`,
     viewCount: m.viewCount,
     likeCount: m.likeCount,

@@ -35,6 +35,7 @@ export interface RawPostMetrics {
   postedAt: Date;
   lang: string | null;
   isReply: boolean;
+  isRetweet: boolean;
   url: string | null;
   viewCount: number;
   likeCount: number;

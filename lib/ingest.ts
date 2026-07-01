@@ -71,6 +71,9 @@ export async function ingestPosts(
 
   for (const p of posts) {
     if (!p.tweetId) continue;
+    // Never store retweets — their metrics belong to the original author, and a
+    // self-retweet would double-count the influencer's own post.
+    if (p.isRetweet) continue;
     if (p.isReply && !opts.includeReplies) continue;
     postsSeen++;
     if (!maxPostedAt || p.postedAt > maxPostedAt) maxPostedAt = p.postedAt;
