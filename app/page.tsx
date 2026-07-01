@@ -6,6 +6,7 @@ import { getUnderdeliveringPlacements } from "@/lib/placements";
 import { buildAttention, type AttentionItem } from "@/lib/alerts";
 import { CostWidget } from "@/components/CostWidget";
 import { RunPollButton } from "@/components/RunPollButton";
+import { CommandPalette } from "@/components/CommandPalette";
 import { Card, Badge, Avatar, EmptyState, PageHeader, Sparkline } from "@/components/ui";
 import { formatNumber, formatRatio, formatSignedPct, relativeTime } from "@/lib/format";
 
@@ -45,6 +46,10 @@ export default async function DashboardPage() {
 
   return (
     <>
+      <CommandPalette
+        creators={board.map((r) => ({ username: r.username, displayName: r.displayName, profilePicture: r.profilePicture }))}
+        campaigns={campaigns.map((c) => ({ id: c.id, name: c.name, client: c.client }))}
+      />
       <PageHeader
         title="Dashboard"
         description="Shared workspace — vet and monitor your X roster."
