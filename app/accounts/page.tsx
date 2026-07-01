@@ -1,11 +1,12 @@
-import { getAccountsOverview, getAllTags } from "@/lib/accounts";
+import { getAllTags } from "@/lib/accounts";
+import { cachedAccountsOverview } from "@/lib/cache";
 import { AccountsManager } from "@/components/AccountsManager";
 import { PageHeader } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountsPage() {
-  const [accounts, tags] = await Promise.all([getAccountsOverview(), getAllTags()]);
+  const [accounts, tags] = await Promise.all([cachedAccountsOverview(), getAllTags()]);
   return (
     <>
       <PageHeader

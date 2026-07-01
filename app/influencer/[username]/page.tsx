@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getInfluencerDetail } from "@/lib/metrics";
+import { cachedInfluencerDetail, cachedLeaderboard } from "@/lib/cache";
 import { InfluencerCharts } from "@/components/InfluencerCharts";
 import { Card, StatCard, Badge, Avatar } from "@/components/ui";
 import { formatNumber, formatFull, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
@@ -13,10 +13,12 @@ export default async function InfluencerPage({
   params: Promise<{ username: string }>;
 }) {
   const { username } = await params;
-  const detail = await getInfluencerDetail(decodeURIComponent(username));
+  const uname = decodeURIComponent(username);
+  const [detail, board] = await Promise.all([cachedInfluencerDetail(uname), cachedLeaderboard()]);
   if (!detail) notFound();
 
-  const { account, row, followerSeries, reachSeries, recentPosts } = detail;
+  const { account, followerSeries, reachSeries, recentPosts } = detail;
+  const row = board.find((r) => r.accountId === account.id) ?? null;
 
   return (
     <>

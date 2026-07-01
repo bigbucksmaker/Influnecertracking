@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/api";
 import { upsertTags } from "@/lib/accounts";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAG } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +30,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
+  revalidateTag(CACHE_TAG);
   const updated = await prisma.account.findUnique({
     where: { id },
     include: { tags: { include: { tag: true } } },
@@ -48,5 +51,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if ("error" in gate) return gate.error;
   const { id } = await params;
   await prisma.account.delete({ where: { id } }).catch(() => null);
+  revalidateTag(CACHE_TAG);
   return NextResponse.json({ ok: true });
 }

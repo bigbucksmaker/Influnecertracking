@@ -4,7 +4,7 @@ import type { AppSettings } from "@prisma/client";
 export const DEFAULT_SETTINGS = {
   reachWeight: 0.5,
   engagementWeight: 0.5,
-  planCapCredits: 11_290_000,
+  planCapCredits: 25_070_000,
   activeWindowHours: 48,
   activePollHours: 3,
   dormantPollHours: 24,

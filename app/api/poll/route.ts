@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
 import { pollAllDue } from "@/lib/polling";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAG } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,5 +15,6 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}) as any);
   const force = body?.force === true;
   const summary = await pollAllDue({ force });
+  revalidateTag(CACHE_TAG);
   return NextResponse.json({ summary });
 }

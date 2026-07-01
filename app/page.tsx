@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { getCostSummary } from "@/lib/cost-summary";
-import { computeLeaderboard, topMovers } from "@/lib/scoring";
-import { getAccountsOverview } from "@/lib/accounts";
-import { getSettings } from "@/lib/settings";
+import { topMovers } from "@/lib/scoring";
+import { cachedCostSummary, cachedLeaderboard, cachedAccountsOverview } from "@/lib/cache";
 import { CostWidget } from "@/components/CostWidget";
 import { RunPollButton } from "@/components/RunPollButton";
 import { Card, StatCard, Badge, Avatar, EmptyState, PageHeader } from "@/components/ui";
@@ -11,7 +9,7 @@ import { formatNumber, formatPct, formatSignedPct, relativeTime } from "@/lib/fo
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const accounts = await getAccountsOverview();
+  const accounts = await cachedAccountsOverview();
 
   if (accounts.length === 0) {
     return (
@@ -29,8 +27,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const settings = await getSettings();
-  const [cost, board] = await Promise.all([getCostSummary(), computeLeaderboard(settings)]);
+  const [cost, board] = await Promise.all([cachedCostSummary(), cachedLeaderboard()]);
   const movers = topMovers(board, 5);
   const performers = board.slice(0, 5);
 

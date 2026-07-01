@@ -46,14 +46,16 @@ export interface PlanTier {
   usd: number;
 }
 
+// Monthly credit caps include the plan's tier bonus (so credits ≠ price × 100k).
 export const PLAN_TIERS: PlanTier[] = [
-  { name: "Starter", credits: 3_130_000, usd: 31.3 },
-  { name: "Builder", credits: 11_290_000, usd: 112.9 },
-  { name: "Pro", credits: 25_070_000, usd: 250.7 },
-  { name: "Scale", credits: 69_860_000, usd: 698.6 },
+  { name: "Starter", credits: 3_130_000, usd: 29 },
+  { name: "Builder", credits: 11_290_000, usd: 99 },
+  { name: "Pro", credits: 25_070_000, usd: 199 },
+  { name: "Scale", credits: 69_860_000, usd: 499 },
+  { name: "Business", credits: 224_850_000, usd: 1499 },
 ];
 
-export const DEFAULT_PLAN_CAP = 11_290_000; // Builder
+export const DEFAULT_PLAN_CAP = 25_070_000; // Pro
 
 /** Smallest plan whose cap covers `credits`, or null if it exceeds every tier. */
 export function recommendPlan(credits: number): PlanTier | null {

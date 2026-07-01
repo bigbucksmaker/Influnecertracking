@@ -1,15 +1,14 @@
 import Link from "next/link";
-import { computeLeaderboard } from "@/lib/scoring";
 import { getAllTags } from "@/lib/accounts";
 import { getSettings } from "@/lib/settings";
+import { cachedLeaderboard } from "@/lib/cache";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { PageHeader, EmptyState } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function LeaderboardPage() {
-  const settings = await getSettings();
-  const [rows, tags] = await Promise.all([computeLeaderboard(settings), getAllTags()]);
+  const [settings, rows, tags] = await Promise.all([getSettings(), cachedLeaderboard(), getAllTags()]);
 
   if (rows.length === 0) {
     return (

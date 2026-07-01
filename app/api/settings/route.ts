@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/api";
 import { getSettings, updateSettings } from "@/lib/settings";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAG } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,5 +38,6 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid settings", details: parsed.error.flatten() }, { status: 400 });
   }
   const settings = await updateSettings(parsed.data);
+  revalidateTag(CACHE_TAG);
   return NextResponse.json({ settings });
 }

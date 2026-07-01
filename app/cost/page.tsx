@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCostSummary } from "@/lib/cost-summary";
+import { cachedCostSummary } from "@/lib/cache";
 import { PLAN_TIERS } from "@/lib/cost";
 import { CostWidget } from "@/components/CostWidget";
 import { CostDailyChart } from "@/components/CostDailyChart";
@@ -17,7 +17,7 @@ const ENDPOINT_LABELS: Record<string, string> = {
 };
 
 export default async function CostPage() {
-  const cost = await getCostSummary();
+  const cost = await cachedCostSummary();
 
   return (
     <>

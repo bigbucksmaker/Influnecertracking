@@ -1,5 +1,4 @@
 import { prisma } from "./db";
-import { computeLeaderboard, type LeaderboardRow } from "./scoring";
 import { getSettings } from "./settings";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -49,7 +48,6 @@ export interface InfluencerDetail {
     lastPolledAt: string | null;
     backfilledAt: string | null;
   };
-  row: LeaderboardRow | null;
   followerSeries: FollowerPoint[];
   reachSeries: ReachPoint[];
   recentPosts: RecentPost[];
@@ -97,7 +95,7 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
 
   const monthAgo = new Date(Date.now() - 30 * DAY_MS);
 
-  const [followerSnaps, postSnaps, recent, board] = await Promise.all([
+  const [followerSnaps, postSnaps, recent] = await Promise.all([
     prisma.accountSnapshot.findMany({
       where: { accountId: account.id, capturedAt: { gte: monthAgo } },
       orderBy: { capturedAt: "asc" },
@@ -117,7 +115,6 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
       orderBy: { postedAt: "desc" },
       include: { snapshots: { orderBy: { capturedAt: "desc" }, take: 1 } },
     }),
-    computeLeaderboard(settings),
   ]);
 
   const followerSeries: FollowerPoint[] = followerSnaps.map((s) => ({
@@ -167,7 +164,6 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
       lastPolledAt: account.lastPolledAt ? account.lastPolledAt.toISOString() : null,
       backfilledAt: account.backfilledAt ? account.backfilledAt.toISOString() : null,
     },
-    row: board.find((r) => r.accountId === account.id) ?? null,
     followerSeries,
     reachSeries,
     recentPosts,

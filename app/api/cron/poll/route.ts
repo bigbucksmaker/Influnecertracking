@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { isAuthorizedCron } from "@/lib/api";
 import { pollAllDue } from "@/lib/polling";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAG } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,5 +17,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const summary = await pollAllDue();
+  revalidateTag(CACHE_TAG);
   return NextResponse.json({ ok: true, summary });
 }

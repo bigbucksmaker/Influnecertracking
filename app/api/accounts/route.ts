@@ -4,6 +4,8 @@ import { requireUser } from "@/lib/api";
 import { parseHandles } from "@/lib/handles";
 import { getAccountsOverview, upsertTags } from "@/lib/accounts";
 import { backfillAccount } from "@/lib/polling";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAG } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,6 +73,7 @@ export async function POST(req: Request) {
     }
   }
 
+  revalidateTag(CACHE_TAG);
   const accounts = await getAccountsOverview();
   return NextResponse.json({
     created: created.map((c) => c.username),
