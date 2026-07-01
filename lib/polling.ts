@@ -266,21 +266,27 @@ export interface PollRunSummary {
   posts: number;
   snapshots: number;
   credits: number;
+  dueBefore: number; // accounts due at the start of this run
+  remaining: number; // due accounts NOT processed this run (when limited)
   results: AccountRunResult[];
 }
 
 export async function pollAllDue(
-  opts: { force?: boolean; concurrency?: number } = {},
+  opts: { force?: boolean; concurrency?: number; limit?: number } = {},
 ): Promise<PollRunSummary> {
   const settings = await getSettings();
   const capturedAt = new Date();
   const now = capturedAt.getTime();
   const accounts = await prisma.account.findMany({ where: { status: "active" } });
 
-  const due = opts.force ? accounts : accounts.filter((a) => isDue(a, settings, now));
+  const allDue = opts.force ? accounts : accounts.filter((a) => isDue(a, settings, now));
+  // Process at most `limit` accounts this run so the client can drain the queue
+  // in small, timeout-safe batches and show progress. Draining works because
+  // each polled account gets lastPolledAt set → it's no longer "due" next batch.
+  const batch = opts.limit && opts.limit > 0 ? allDue.slice(0, opts.limit) : allDue;
   const concurrency = opts.concurrency ?? 5;
 
-  const results = await pool(due, concurrency, (account) =>
+  const results = await pool(batch, concurrency, (account) =>
     pollAccount(account.id, { capturedAt, settings }),
   );
 
@@ -293,6 +299,8 @@ export async function pollAllDue(
     posts: results.reduce((s, r) => s + r.posts, 0),
     snapshots: results.reduce((s, r) => s + r.snapshots, 0),
     credits: results.reduce((s, r) => s + r.credits, 0),
+    dueBefore: allDue.length,
+    remaining: allDue.length - batch.length,
     results,
   };
   return summary;
@@ -315,6 +323,8 @@ export async function backfillPending(concurrency = 3): Promise<PollRunSummary> 
     posts: results.reduce((s, r) => s + r.posts, 0),
     snapshots: results.reduce((s, r) => s + r.snapshots, 0),
     credits: results.reduce((s, r) => s + r.credits, 0),
+    dueBefore: accounts.length,
+    remaining: 0,
     results,
   };
 }
