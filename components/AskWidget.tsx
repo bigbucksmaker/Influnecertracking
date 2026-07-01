@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Inv = {
   toolCallId: string;
@@ -18,6 +20,7 @@ const EXAMPLES = [
   "Creators with >50k median and steady consistency",
 ];
 
+// Past-tense labels for completed tool steps (activity chips).
 const READ_LABELS: Record<string, string> = {
   queryLeaderboard: "searched the leaderboard",
   getCreator: "looked up a creator",
@@ -30,27 +33,64 @@ const READ_LABELS: Record<string, string> = {
   runSql: "ran a SQL query",
 };
 
-// Render [label](url) as links; everything else as plain text.
-function RichText({ text }: { text: string }) {
-  const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
+// Present-tense labels for in-flight steps (live status).
+const RUNNING_LABELS: Record<string, string> = {
+  queryLeaderboard: "Searching the leaderboard",
+  getCreator: "Looking up the creator",
+  compareCreators: "Comparing creators",
+  listMovers: "Checking movers",
+  listNiches: "Listing niches",
+  listCampaigns: "Checking campaigns",
+  listShortlists: "Listing shortlists",
+  costSummary: "Checking spend",
+  runSql: "Running a query",
+};
+
+// Markdown → dark-styled elements (tables, bold, lists, links). No typography plugin needed.
+const MD = {
+  p: ({ node, ...p }: any) => <p className="mb-2 leading-relaxed last:mb-0" {...p} />,
+  strong: ({ node, ...p }: any) => <strong className="font-semibold text-fg" {...p} />,
+  em: ({ node, ...p }: any) => <em className="italic" {...p} />,
+  a: ({ node, href, ...p }: any) => {
+    const external = /^https?:\/\//.test(href ?? "");
+    return (
+      <a
+        href={href}
+        {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        className="text-accent-400 hover:underline"
+        {...p}
+      />
+    );
+  },
+  ul: ({ node, ...p }: any) => <ul className="mb-2 list-disc space-y-0.5 pl-4 last:mb-0" {...p} />,
+  ol: ({ node, ...p }: any) => <ol className="mb-2 list-decimal space-y-0.5 pl-4 last:mb-0" {...p} />,
+  li: ({ node, ...p }: any) => <li className="leading-relaxed" {...p} />,
+  h1: ({ node, ...p }: any) => <h3 className="mb-1 mt-1 text-[14px] font-semibold text-fg" {...p} />,
+  h2: ({ node, ...p }: any) => <h3 className="mb-1 mt-1 text-[13.5px] font-semibold text-fg" {...p} />,
+  h3: ({ node, ...p }: any) => <h3 className="mb-1 mt-1 text-[13px] font-semibold text-fg" {...p} />,
+  code: ({ node, ...p }: any) => <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11.5px]" {...p} />,
+  hr: () => <hr className="my-2 border-line-soft" />,
+  blockquote: ({ node, ...p }: any) => <blockquote className="border-l-2 border-line pl-2 text-subtle" {...p} />,
+  table: ({ node, ...p }: any) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse text-[12px] tabular-nums" {...p} />
+    </div>
+  ),
+  th: ({ node, ...p }: any) => (
+    <th className="whitespace-nowrap border-b border-line px-2 py-1 text-left font-medium text-subtle" {...p} />
+  ),
+  td: ({ node, ...p }: any) => (
+    <td className="whitespace-nowrap border-b border-line-soft px-2 py-1 align-top" {...p} />
+  ),
+};
+
+function Markdown({ children }: { children: string }) {
   return (
-    <span className="whitespace-pre-wrap break-words">
-      {parts.map((p, i) => {
-        const m = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-        if (!m) return <span key={i}>{p}</span>;
-        const external = /^https?:\/\//.test(m[2]);
-        return (
-          <a
-            key={i}
-            href={m[2]}
-            {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className="text-accent-400 hover:underline"
-          >
-            {m[1]}
-          </a>
-        );
-      })}
-    </span>
+    <div className="text-[13px] leading-relaxed">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD}>
+        {children}
+      </ReactMarkdown>
+    </div>
   );
 }
 
@@ -61,6 +101,26 @@ export function AskWidget() {
     maxSteps: 6,
   });
   const busy = status === "submitted" || status === "streaming";
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to the newest content so streaming replies are always visible.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, status]);
+
+  // Live status label: name the in-flight tool if one is running.
+  let liveLabel = "Thinking…";
+  const last = messages[messages.length - 1];
+  if (last?.role === "assistant") {
+    const lparts = (last as unknown as { parts?: Array<Record<string, unknown>> }).parts;
+    const inflight = lparts?.find(
+      (p) => p.type === "tool-invocation" && (p.toolInvocation as Inv | undefined)?.state !== "result",
+    );
+    if (inflight) {
+      const name = (inflight.toolInvocation as Inv).toolName;
+      liveLabel = `${RUNNING_LABELS[name] ?? "Working"}…`;
+    }
+  }
 
   async function confirmAction(inv: Inv) {
     try {
@@ -121,6 +181,17 @@ export function AskWidget() {
         <span className="h-1 w-1 rounded-full bg-accent-400" />
         {READ_LABELS[inv.toolName] ?? inv.toolName}
       </div>
+    );
+  }
+
+  function renderText(role: string, t: string, key: number) {
+    if (!t) return null;
+    return role === "assistant" ? (
+      <Markdown key={key}>{t}</Markdown>
+    ) : (
+      <span key={key} className="whitespace-pre-wrap break-words">
+        {t}
+      </span>
     );
   }
 
@@ -191,18 +262,13 @@ export function AskWidget() {
                   >
                     {parts && parts.length > 0 ? (
                       parts.map((part, i) => {
-                        if (part.type === "text") {
-                          const t = part.text as string;
-                          return t ? <RichText key={i} text={t} /> : null;
-                        }
-                        if (part.type === "tool-invocation") {
-                          return <div key={i}>{renderInvocation(part.toolInvocation as Inv)}</div>;
-                        }
+                        if (part.type === "text") return renderText(m.role, part.text as string, i);
+                        if (part.type === "tool-invocation") return <div key={i}>{renderInvocation(part.toolInvocation as Inv)}</div>;
                         return null;
                       })
                     ) : (
                       <>
-                        {m.content && <RichText text={m.content} />}
+                        {renderText(m.role, m.content, 0)}
                         {legacyInvs.map((inv) => (
                           <div key={inv.toolCallId}>{renderInvocation(inv)}</div>
                         ))}
@@ -213,7 +279,16 @@ export function AskWidget() {
               );
             })}
 
-            {busy && <div className="text-[11.5px] text-subtle">Thinking…</div>}
+            {busy && (
+              <div className="flex items-center gap-2 text-[12px] text-subtle">
+                <span className="flex gap-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent-400 [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent-400 [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent-400" />
+                </span>
+                {liveLabel}
+              </div>
+            )}
 
             {error && (
               <div className="rounded-xl border border-neg/40 bg-neg-soft px-3 py-2 text-[12.5px] text-neg">
@@ -224,6 +299,8 @@ export function AskWidget() {
                 </button>
               </div>
             )}
+
+            <div ref={endRef} />
           </div>
 
           {/* Input */}
