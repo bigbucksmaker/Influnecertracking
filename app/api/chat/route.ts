@@ -1,5 +1,5 @@
 import { anthropic } from "@ai-sdk/anthropic";
-import { streamText, convertToCoreMessages, type Message } from "ai";
+import { streamText, convertToCoreMessages, wrapLanguageModel, type Message } from "ai";
 import { requireUser } from "@/lib/api";
 import { assistantTools } from "@/lib/assistant/tools";
 import { SYSTEM_PROMPT, ASSISTANT_MODEL } from "@/lib/assistant/prompt";
@@ -21,13 +21,27 @@ export async function POST(req: Request) {
 
   const { messages } = (await req.json()) as { messages: Message[] };
 
-  const result = streamText({
+  // claude-sonnet-5 rejects `temperature`, but AI SDK v4 core injects a default of 0
+  // (its own source is flagged "TODO v5 remove default 0 for temperature"). Removing
+  // our explicit value isn't enough — strip the param in middleware so it never
+  // reaches the Anthropic API.
+  const model = wrapLanguageModel({
     model: anthropic(ASSISTANT_MODEL),
+    middleware: {
+      transformParams: async ({ params }) => {
+        const next = { ...params };
+        delete next.temperature;
+        return next;
+      },
+    },
+  });
+
+  const result = streamText({
+    model,
     system: SYSTEM_PROMPT,
     messages: convertToCoreMessages(messages),
     tools: assistantTools,
     maxSteps: 6,
-    // Note: claude-sonnet-5 rejects an explicit `temperature` (deprecated on this model).
   });
 
   // Surface the real error to the client (internal tool) instead of the SDK's
