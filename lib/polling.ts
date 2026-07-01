@@ -157,7 +157,25 @@ export async function pollAccount(
   const username = account.username;
   const capturedAt = opts.capturedAt ?? new Date();
   const freezeBefore = new Date(capturedAt.getTime() - settings.freezeAgeDays * DAY_MS);
+  const commissionedFreezeBefore = new Date(
+    capturedAt.getTime() - settings.commissionedFreezeDays * DAY_MS,
+  );
   const ctx: CallContext = { accountId, purpose: "poll" };
+
+  // Commissioned posts in an ACTIVE campaign keep their extended tracking window.
+  const commissionedPlacements = await prisma.placement.findMany({
+    where: { accountId, postId: { not: null }, campaign: { status: "active" } },
+    select: { postId: true },
+  });
+  const commissionedIds = new Set(
+    commissionedPlacements.map((p) => p.postId).filter((id): id is string => !!id),
+  );
+  const ingestOpts = {
+    freezeAgeDays: settings.freezeAgeDays,
+    includeReplies: settings.includeReplies,
+    commissionedFreezeDays: settings.commissionedFreezeDays,
+    commissionedIds,
+  };
 
   let credits = 0;
   let posts = 0;
@@ -192,7 +210,7 @@ export async function pollAccount(
         accountId,
         res.data,
         { capturedAt, source: "poll", apiCallId },
-        { freezeAgeDays: settings.freezeAgeDays, includeReplies: settings.includeReplies },
+        ingestOpts,
       );
       posts += r.postsSeen;
       snapshots += r.snapshotsCreated;
@@ -205,13 +223,22 @@ export async function pollAccount(
       cursor = res.nextCursor;
     }
 
-    // 3) refresh in-window posts that fell off the latest page (cheap batch read)
+    // 3) refresh in-window posts that fell off the latest page (cheap batch read).
+    //    Commissioned posts in an active campaign extend the window to
+    //    commissionedFreezeDays so they keep updating past the normal freeze age.
     const stale = await prisma.post.findMany({
       where: {
         accountId,
         isFrozen: false,
-        postedAt: { gte: freezeBefore },
         id: { notIn: [...ingestedIds] },
+        OR: [
+          { postedAt: { gte: freezeBefore } },
+          {
+            commissioned: true,
+            postedAt: { gte: commissionedFreezeBefore },
+            placements: { some: { campaign: { status: "active" } } },
+          },
+        ],
       },
       select: { id: true },
     });
@@ -224,7 +251,7 @@ export async function pollAccount(
         accountId,
         res.data as RawPostMetrics[],
         { capturedAt, source: "refresh", apiCallId },
-        { freezeAgeDays: settings.freezeAgeDays, includeReplies: settings.includeReplies },
+        ingestOpts,
       );
       posts += r.postsSeen;
       snapshots += r.snapshotsCreated;

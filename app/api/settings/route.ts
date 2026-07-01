@@ -20,6 +20,11 @@ const schema = z
     backfillDays: z.coerce.number().int().min(1).max(90),
     normalization: z.enum(["percentile", "zscore"]),
     includeReplies: z.boolean(),
+    minPostsForConfidence: z.coerce.number().int().min(1).max(50),
+    stalePollHours: z.coerce.number().int().min(1).max(720),
+    fallingThreshold: z.coerce.number().min(0).max(1),
+    commissionedFreezeDays: z.coerce.number().int().min(1).max(90),
+    underdeliverThreshold: z.coerce.number().min(0).max(2),
   })
   .partial();
 

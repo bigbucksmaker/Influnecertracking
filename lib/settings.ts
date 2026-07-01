@@ -12,6 +12,11 @@ export const DEFAULT_SETTINGS = {
   backfillDays: 7,
   normalization: "percentile",
   includeReplies: false,
+  minPostsForConfidence: 3,
+  stalePollHours: 12,
+  fallingThreshold: 0.25,
+  commissionedFreezeDays: 14,
+  underdeliverThreshold: 0.7,
 };
 
 /** Read the singleton settings row, creating it with defaults if missing. */

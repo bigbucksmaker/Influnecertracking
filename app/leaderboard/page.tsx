@@ -7,8 +7,24 @@ import { PageHeader, EmptyState } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function LeaderboardPage() {
-  const [settings, rows, tags] = await Promise.all([getSettings(), cachedLeaderboard(), getAllTags()]);
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ direction?: string; tier?: string; rising?: string; q?: string; tag?: string }>;
+}) {
+  const [settings, rows, tags, sp] = await Promise.all([
+    getSettings(),
+    cachedLeaderboard(),
+    getAllTags(),
+    searchParams,
+  ]);
+  const initialFilters = {
+    direction: ["rising", "falling", "flat"].includes(sp.direction ?? "") ? sp.direction! : "",
+    tier: ["active", "dormant"].includes(sp.tier ?? "") ? sp.tier! : "",
+    rising: sp.rising === "1" || sp.rising === "true",
+    q: sp.q ?? "",
+    tag: sp.tag ?? "",
+  };
 
   if (rows.length === 0) {
     return (
@@ -29,14 +45,14 @@ export default async function LeaderboardPage() {
     <>
       <PageHeader
         title="Leaderboard"
-        description={`Performance Score = ${reachPct}% reach + ${engPct}% engagement rate, ${settings.normalization}-normalized over the trailing 7 days. Sort or filter by any column.`}
+        description={`Performance Score = ${reachPct}% median reach + ${engPct}% engagement rate, ${settings.normalization}-normalized over the trailing 7 days. Sort or filter by any column.`}
         actions={
           <Link href="/settings" className="text-sm text-brand-600 hover:underline">
             Adjust weights →
           </Link>
         }
       />
-      <LeaderboardTable rows={rows} allTags={tags} />
+      <LeaderboardTable rows={rows} allTags={tags} initialFilters={initialFilters} />
     </>
   );
 }

@@ -19,6 +19,11 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
   const [backfillDays, setBFD] = useState(settings.backfillDays);
   const [normalization, setNorm] = useState(settings.normalization);
   const [includeReplies, setIncludeReplies] = useState(settings.includeReplies);
+  const [minPostsForConfidence, setMinPosts] = useState(settings.minPostsForConfidence);
+  const [stalePollHours, setStalePoll] = useState(settings.stalePollHours);
+  const [fallingPct, setFallingPct] = useState(Math.round(settings.fallingThreshold * 100));
+  const [commissionedFreezeDays, setCFD] = useState(settings.commissionedFreezeDays);
+  const [underdeliverPct, setUnderdeliverPct] = useState(Math.round(settings.underdeliverThreshold * 100));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -42,6 +47,11 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
           backfillDays,
           normalization,
           includeReplies,
+          minPostsForConfidence,
+          stalePollHours,
+          fallingThreshold: fallingPct / 100,
+          commissionedFreezeDays,
+          underdeliverThreshold: underdeliverPct / 100,
         }),
       });
       const data = await res.json();
@@ -140,6 +150,58 @@ export function SettingsForm({ settings }: { settings: AppSettings }) {
             <input type="checkbox" checked={includeReplies} onChange={(e) => setIncludeReplies(e.target.checked)} />
             Include replies in tracking
           </label>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="text-sm font-semibold text-slate-900">Confidence & movers</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Scores built on thin or stale data are flagged <b>low-confidence</b> (dimmed on the
+          leaderboard) rather than hidden. Falling threshold mirrors the +25% rising rule for
+          week-over-week declines.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <NumberField
+            label="Min posts for confidence"
+            value={minPostsForConfidence}
+            onChange={setMinPosts}
+            hint="Fewer authored posts in 7d → low confidence"
+          />
+          <NumberField
+            label="Stale poll threshold (hours)"
+            value={stalePollHours}
+            onChange={setStalePoll}
+            hint="Last poll older than this → low confidence"
+          />
+          <NumberField
+            label="Falling threshold (%)"
+            value={fallingPct}
+            onChange={setFallingPct}
+            hint="WoW drop ≥ this flags a “falling” account"
+          />
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="text-sm font-semibold text-slate-900">Commissioned posts</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Commissioned posts in an active campaign keep updating for longer than normal posts, and are
+          flagged when they underdeliver against the creator&apos;s organic median. Prices are stored
+          for reference only and never enter a metric.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <NumberField
+            label="Commissioned freeze (days)"
+            value={commissionedFreezeDays}
+            onChange={setCFD}
+            hint="Extended tracking window for paid posts"
+          />
+          <NumberField
+            label="Underdeliver threshold (%)"
+            value={underdeliverPct}
+            onChange={setUnderdeliverPct}
+            hint="Delivery below this % of baseline = underdelivered"
+          />
         </div>
       </Card>
 

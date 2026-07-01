@@ -61,9 +61,21 @@ export async function ingestPosts(
   accountId: string,
   posts: RawPostMetrics[],
   ctx: IngestContext,
-  opts: { freezeAgeDays: number; includeReplies: boolean },
+  opts: {
+    freezeAgeDays: number;
+    includeReplies: boolean;
+    // Commissioned posts (in an active campaign) get an extended freeze window so
+    // they keep updating past the normal freezeAgeDays. Any id in `commissionedIds`
+    // uses `commissionedFreezeDays` instead of `freezeAgeDays`.
+    commissionedFreezeDays?: number;
+    commissionedIds?: Set<string>;
+  },
 ): Promise<IngestPostsResult> {
   const freezeBefore = new Date(ctx.capturedAt.getTime() - opts.freezeAgeDays * DAY_MS);
+  const commissionedFreezeBefore =
+    opts.commissionedFreezeDays != null
+      ? new Date(ctx.capturedAt.getTime() - opts.commissionedFreezeDays * DAY_MS)
+      : freezeBefore;
   let snapshotsCreated = 0;
   let frozen = 0;
   let maxPostedAt: Date | null = null;
@@ -78,7 +90,8 @@ export async function ingestPosts(
     postsSeen++;
     if (!maxPostedAt || p.postedAt > maxPostedAt) maxPostedAt = p.postedAt;
 
-    const shouldFreeze = p.postedAt.getTime() < freezeBefore.getTime();
+    const cutoff = opts.commissionedIds?.has(p.tweetId) ? commissionedFreezeBefore : freezeBefore;
+    const shouldFreeze = p.postedAt.getTime() < cutoff.getTime();
     const engagements = engagementsOf(p);
 
     await prisma.post.upsert({

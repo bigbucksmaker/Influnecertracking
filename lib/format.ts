@@ -24,6 +24,12 @@ export function formatSignedPct(ratio: number | null | undefined, digits = 1): s
   return sign + v.toFixed(digits) + "%";
 }
 
+/** Delivery ratio as a multiple, e.g. 0.62 → "0.6×". */
+export function formatRatio(n: number | null | undefined, digits = 1): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return n.toFixed(digits) + "×";
+}
+
 export function formatUsd(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });

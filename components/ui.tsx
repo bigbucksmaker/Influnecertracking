@@ -119,6 +119,47 @@ export function Avatar({
   );
 }
 
+/** Tiny dependency-free trend sparkline (inline SVG). Colored by first→last trend. */
+export function Sparkline({
+  values,
+  width = 68,
+  height = 20,
+  className,
+}: {
+  values: number[];
+  width?: number;
+  height?: number;
+  className?: string;
+}) {
+  const pts = values.filter((v) => Number.isFinite(v));
+  const nonZero = pts.some((v) => v > 0);
+  if (pts.length < 2 || !nonZero) {
+    return <span className="text-xs text-slate-300">—</span>;
+  }
+  const max = Math.max(...pts);
+  const min = Math.min(...pts);
+  const span = max - min || 1;
+  const pad = 2;
+  const w = width - pad * 2;
+  const h = height - pad * 2;
+  const coords = pts.map((v, i) => {
+    const x = pad + (i / (pts.length - 1)) * w;
+    const y = pad + h - ((v - min) / span) * h;
+    return [x, y] as const;
+  });
+  const d = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const stroke = last > first ? "#059669" : last < first ? "#dc2626" : "#94a3b8";
+  const [lx, ly] = coords[coords.length - 1];
+  return (
+    <svg width={width} height={height} className={clsx("inline-block align-middle", className)} aria-hidden>
+      <path d={d} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lx} cy={ly} r={1.8} fill={stroke} />
+    </svg>
+  );
+}
+
 export function PageHeader({
   title,
   description,

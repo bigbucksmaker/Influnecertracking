@@ -8,6 +8,8 @@ import { doSignOut } from "@/app/actions/auth";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/campaigns", label: "Campaigns" },
+  { href: "/shortlists", label: "Shortlists" },
   { href: "/accounts", label: "Watchlist" },
   { href: "/niches", label: "Niches" },
   { href: "/cost", label: "Cost" },

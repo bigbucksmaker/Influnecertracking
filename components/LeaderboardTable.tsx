@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { clsx } from "clsx";
 import type { LeaderboardRow } from "@/lib/scoring";
-import { Avatar, Badge } from "./ui";
+import { Avatar, Badge, Sparkline } from "./ui";
 import { RatesEditor, type Rates } from "./RatesEditor";
-import { formatNumber, formatFull, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
+import { AddToShortlist } from "./AddToShortlist";
+import { formatNumber, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
 
 type SortDir = "asc" | "desc";
 
@@ -25,9 +26,18 @@ const COLUMNS: Column[] = [
     key: "score",
     label: "Score",
     numeric: true,
-    title: "Performance Score (0–100): blend of normalized reach + engagement rate",
+    title: "Performance Score (0–100): blend of normalized MEDIAN reach + engagement rate",
     sortVal: (r) => r.performanceScore,
-    render: (r) => <span className="font-semibold text-slate-900">{r.performanceScore}</span>,
+    render: (r) => (
+      <span className="inline-flex items-center gap-1">
+        <span className="font-semibold text-slate-900">{r.performanceScore}</span>
+        {r.lowConfidence && (
+          <span title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}>
+            <Badge color="amber">⚠</Badge>
+          </span>
+        )}
+      </span>
+    ),
   },
   {
     key: "followers",
@@ -51,12 +61,27 @@ const COLUMNS: Column[] = [
     render: (r) => <Delta abs={r.followerGrowth30d} pct={r.followerGrowth30dPct} />,
   },
   {
-    key: "views",
-    label: "Avg views/post",
+    key: "median",
+    label: "Median views",
     numeric: true,
-    title: "Reach — average views per post over the trailing 7 days",
-    sortVal: (r) => r.avgViews,
-    render: (r) => formatNumber(r.avgViews),
+    title:
+      "Reach — MEDIAN views/post over the trailing 7 days (robust to viral spikes). Sub-value: p25 floor.",
+    sortVal: (r) => r.medianViews,
+    render: (r) => (
+      <div className="leading-tight">
+        <div>{formatNumber(r.medianViews)}</div>
+        <div className="text-[10px] text-slate-400" title="25th-percentile views/post (floor)">
+          p25 {formatNumber(r.p25Views)}
+        </div>
+      </div>
+    ),
+  },
+  {
+    key: "consistency",
+    label: "Steadiness",
+    title: "IQR ÷ median — lower is steadier. Steady < 0.5 · Spiky ≥ 1.0",
+    sortVal: (r) => r.consistency,
+    render: (r) => <Steadiness c={r.consistency} />,
   },
   {
     key: "erImp",
@@ -85,7 +110,7 @@ const COLUMNS: Column[] = [
     key: "qtRate",
     label: "QT Rate",
     numeric: true,
-    title: "Quote-tweet campaign rate (USD)",
+    title: "Quote-tweet campaign rate (USD) — reference only, never used in scoring",
     sortVal: (r) => r.rateQuoteTweet,
     render: (r) => (r.rateQuoteTweet != null ? `$${r.rateQuoteTweet}` : "—"),
   },
@@ -97,10 +122,26 @@ const COLUMNS: Column[] = [
     sortVal: (r) => r.wowViewsPct,
     render: (r) => (
       <span className="flex items-center justify-end gap-1">
-        {r.rising && <Badge color="green">▲</Badge>}
+        {r.rising && (
+          <span title="Rising ≥ threshold WoW">
+            <Badge color="green">▲</Badge>
+          </span>
+        )}
+        {r.falling && (
+          <span title="Falling ≥ threshold WoW">
+            <Badge color="red">▼</Badge>
+          </span>
+        )}
         <Signed pct={r.wowViewsPct} />
       </span>
     ),
+  },
+  {
+    key: "trend",
+    label: "4wk trend",
+    title: "Weekly-median views/post over the last 4 weeks",
+    sortVal: (r) => r.viewsSparkline[r.viewsSparkline.length - 1] ?? null,
+    render: (r) => <Sparkline values={r.viewsSparkline} />,
   },
   {
     key: "tier",
@@ -118,22 +159,33 @@ const COLUMNS: Column[] = [
   },
 ];
 
+interface InitialFilters {
+  direction?: string;
+  tier?: string;
+  rising?: boolean;
+  q?: string;
+  tag?: string;
+}
+
 export function LeaderboardTable({
   rows: initialRows,
   allTags,
+  initialFilters,
 }: {
   rows: LeaderboardRow[];
   allTags: string[];
+  initialFilters?: InitialFilters;
 }) {
   const [rows, setRows] = useState(initialRows);
   useEffect(() => setRows(initialRows), [initialRows]);
   const [editing, setEditing] = useState<LeaderboardRow | null>(null);
   const [sortKey, setSortKey] = useState("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [q, setQ] = useState("");
-  const [tag, setTag] = useState("");
-  const [tier, setTier] = useState("");
-  const [risingOnly, setRisingOnly] = useState(false);
+  const [q, setQ] = useState(initialFilters?.q ?? "");
+  const [tag, setTag] = useState(initialFilters?.tag ?? "");
+  const [tier, setTier] = useState(initialFilters?.tier ?? "");
+  const [direction, setDirection] = useState(initialFilters?.direction ?? "");
+  const [risingOnly, setRisingOnly] = useState(initialFilters?.rising ?? false);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -142,13 +194,14 @@ export function LeaderboardTable({
         return false;
       if (tag && !r.tags.includes(tag)) return false;
       if (tier && r.pollingTier !== tier) return false;
+      if (direction && r.direction !== direction) return false;
       if (risingOnly && !r.rising) return false;
       return true;
     });
     const col = COLUMNS.find((c) => c.key === sortKey) ?? COLUMNS[1];
     out = [...out].sort((a, b) => cmp(col.sortVal(a), col.sortVal(b), sortDir));
     return out;
-  }, [rows, q, tag, tier, risingOnly, sortKey, sortDir]);
+  }, [rows, q, tag, tier, direction, risingOnly, sortKey, sortDir]);
 
   function toggleSort(key: string) {
     if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -197,6 +250,17 @@ export function LeaderboardTable({
           <option value="active">Active</option>
           <option value="dormant">Dormant</option>
         </select>
+        <select
+          value={direction}
+          onChange={(e) => setDirection(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          title="Filter by week-over-week direction"
+        >
+          <option value="">All directions</option>
+          <option value="rising">Rising ▲</option>
+          <option value="falling">Falling ▼</option>
+          <option value="flat">Flat</option>
+        </select>
         <label className="flex items-center gap-1.5 text-sm text-slate-600">
           <input type="checkbox" checked={risingOnly} onChange={(e) => setRisingOnly(e.target.checked)} />
           Rising only
@@ -234,7 +298,13 @@ export function LeaderboardTable({
           </thead>
           <tbody>
             {filtered.map((r) => (
-              <tr key={r.accountId} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+              <tr
+                key={r.accountId}
+                className={clsx(
+                  "border-b border-slate-100 last:border-0 hover:bg-slate-50",
+                  r.lowConfidence && "opacity-55",
+                )}
+              >
                 <td className="sticky left-0 z-10 bg-white px-3 py-2">
                   <Link href={`/influencer/${r.username}`} className="flex items-center gap-2">
                     <Avatar src={r.profilePicture} alt={r.username} size={28} />
@@ -242,7 +312,14 @@ export function LeaderboardTable({
                       <span className="block max-w-[180px] truncate font-medium text-slate-900">
                         {r.displayName ?? r.username}
                       </span>
-                      <span className="block truncate text-xs text-slate-500">@{r.username}</span>
+                      <span className="flex items-center gap-1 truncate text-xs text-slate-500">
+                        @{r.username}
+                        {r.lowConfidence && (
+                          <span title={"Low confidence: " + r.lowConfidenceReasons.join("; ")}>
+                            <Badge color="amber">low-confidence</Badge>
+                          </span>
+                        )}
+                      </span>
                     </span>
                   </Link>
                 </td>
@@ -252,13 +329,16 @@ export function LeaderboardTable({
                   </td>
                 ))}
                 <td className="px-3 py-2 text-right">
-                  <button
-                    onClick={() => setEditing(r)}
-                    className="text-xs text-brand-600 hover:underline"
-                    title="Edit rates"
-                  >
-                    ✎ rates
-                  </button>
+                  <span className="inline-flex items-center gap-2">
+                    <AddToShortlist username={r.username} />
+                    <button
+                      onClick={() => setEditing(r)}
+                      className="text-xs text-brand-600 hover:underline"
+                      title="Edit rates"
+                    >
+                      ✎ rates
+                    </button>
+                  </span>
                 </td>
               </tr>
             ))}
@@ -307,6 +387,13 @@ function Signed({ pct }: { pct: number | null }) {
   return <span className={pct > 0 ? "text-emerald-600" : pct < 0 ? "text-red-600" : "text-slate-500"}>{formatSignedPct(pct)}</span>;
 }
 
+function Steadiness({ c }: { c: number | null }) {
+  if (c == null) return <span className="text-slate-300">—</span>;
+  if (c < 0.5) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="green">steady</Badge></span>;
+  if (c < 1.0) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="slate">normal</Badge></span>;
+  return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="amber">spiky</Badge></span>;
+}
+
 function cmp(a: number | string | null, b: number | string | null, dir: SortDir): number {
   const nullRank = (v: number | string | null) => (v == null ? 1 : 0);
   if (nullRank(a) !== nullRank(b)) return nullRank(a) - nullRank(b); // nulls always last
@@ -318,11 +405,11 @@ function cmp(a: number | string | null, b: number | string | null, dir: SortDir)
 
 function downloadCsv(rows: LeaderboardRow[]) {
   const headers = [
-    "rank", "username", "displayName", "performanceScore", "followers",
+    "rank", "username", "displayName", "performanceScore", "lowConfidence", "followers",
     "rateQuoteTweet", "ratePost", "rateRetweet", "rateThread",
     "followerGrowth7d", "followerGrowth7dPct", "followerGrowth30d",
-    "avgViews", "erImpressions", "erFollowers", "postCount7d", "wowViewsPct",
-    "rising", "tags", "pollingTier", "lastPolledAt",
+    "medianViews", "p25Views", "avgViews", "consistency", "erImpressions", "erFollowers",
+    "postsInWindow", "wowViewsPct", "direction", "tags", "pollingTier", "lastPolledAt",
   ];
   const esc = (v: unknown) => {
     const s = v == null ? "" : String(v);
@@ -332,11 +419,12 @@ function downloadCsv(rows: LeaderboardRow[]) {
   for (const r of rows) {
     lines.push(
       [
-        r.rank, r.username, r.displayName ?? "", r.performanceScore, r.currentFollowers ?? "",
+        r.rank, r.username, r.displayName ?? "", r.performanceScore, r.lowConfidence, r.currentFollowers ?? "",
         r.rateQuoteTweet ?? "", r.ratePost ?? "", r.rateRetweet ?? "", r.rateThread ?? "",
         r.followerGrowth7d ?? "", r.followerGrowth7dPct ?? "", r.followerGrowth30d ?? "",
-        Math.round(r.avgViews), r.erImpressions, r.erFollowers, r.postCount7d, r.wowViewsPct ?? "",
-        r.rising, r.tags.join("|"), r.pollingTier, r.lastPolledAt ?? "",
+        Math.round(r.medianViews), Math.round(r.p25Views), Math.round(r.avgViews),
+        r.consistency ?? "", r.erImpressions, r.erFollowers,
+        r.postsInWindow, r.wowViewsPct ?? "", r.direction, r.tags.join("|"), r.pollingTier, r.lastPolledAt ?? "",
       ].map(esc).join(","),
     );
   }

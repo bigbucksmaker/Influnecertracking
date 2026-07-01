@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { getSettings } from "./settings";
+import { summarizeViews } from "./scoring";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -22,6 +23,7 @@ export interface RecentPost {
   postedAt: string;
   url: string | null;
   isFrozen: boolean;
+  commissioned: boolean;
   views: number;
   likes: number;
   retweets: number;
@@ -30,6 +32,32 @@ export interface RecentPost {
   bookmarks: number;
   engagements: number;
   erImpressions: number;
+}
+
+export interface DistributionPoint {
+  id: string;
+  ageDays: number; // days since posted
+  views: number;
+  isMax: boolean;
+}
+
+export interface CommissionedMarker {
+  id: string;
+  ageDays: number;
+  views: number;
+  deliveryRatioViews: number | null; // views ÷ organic baseline median
+  underdelivered: boolean;
+}
+
+export interface ViewDistribution {
+  points: DistributionPoint[]; // organic in-window posts (trailing 7d)
+  median: number;
+  p25: number;
+  mean: number;
+  maxViews: number;
+  baselineMedianViews: number; // organic 30d median — the "normal band" for commissioned posts
+  commissionedMarkers: CommissionedMarker[];
+  domainDays: number; // x-axis span (≥ 7)
 }
 
 export interface InfluencerDetail {
@@ -51,6 +79,7 @@ export interface InfluencerDetail {
   followerSeries: FollowerPoint[];
   reachSeries: ReachPoint[];
   recentPosts: RecentPost[];
+  distribution: ViewDistribution;
 }
 
 /** Carry-forward totals: at each run timestamp, sum each post's last-known value
@@ -136,6 +165,7 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
         postedAt: p.postedAt.toISOString(),
         url: p.url,
         isFrozen: p.isFrozen,
+        commissioned: p.commissioned,
         views,
         likes: s?.likeCount ?? 0,
         retweets: s?.retweetCount ?? 0,
@@ -147,6 +177,54 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
       };
     })
     .sort((a, b) => b.views - a.views);
+
+  // View distribution over the trailing 7d scoring window (why median > mean).
+  // Organic posts form the "normal band"; commissioned posts are overlaid as
+  // markers so you can see where a paid post landed relative to it.
+  const now = Date.now();
+  const weekAgo = now - 7 * DAY_MS;
+  const organic = recentPosts.filter((p) => !p.commissioned);
+  const baselineMedianViews = summarizeViews(organic.map((p) => p.views)).median;
+
+  const inWindow = organic.filter((p) => new Date(p.postedAt).getTime() >= weekAgo);
+  const windowViews = inWindow.map((p) => p.views);
+  const summary = summarizeViews(windowViews);
+  const maxViews = windowViews.length ? Math.max(...windowViews) : 0;
+
+  const commissionedMarkers: CommissionedMarker[] = recentPosts
+    .filter((p) => p.commissioned)
+    .map((p) => {
+      const deliveryRatioViews = baselineMedianViews > 0 ? p.views / baselineMedianViews : null;
+      return {
+        id: p.id,
+        ageDays: (now - new Date(p.postedAt).getTime()) / DAY_MS,
+        views: p.views,
+        deliveryRatioViews,
+        underdelivered:
+          deliveryRatioViews != null && deliveryRatioViews < settings.underdeliverThreshold,
+      };
+    });
+
+  const domainDays = Math.min(
+    30,
+    Math.max(7, ...commissionedMarkers.map((m) => Math.ceil(m.ageDays)), 7),
+  );
+
+  const distribution: ViewDistribution = {
+    points: inWindow.map((p) => ({
+      id: p.id,
+      ageDays: (now - new Date(p.postedAt).getTime()) / DAY_MS,
+      views: p.views,
+      isMax: p.views === maxViews && maxViews > 0,
+    })),
+    median: summary.median,
+    p25: summary.p25,
+    mean: summary.mean,
+    maxViews,
+    baselineMedianViews,
+    commissionedMarkers,
+    domainDays,
+  };
 
   return {
     account: {
@@ -167,5 +245,6 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
     followerSeries,
     reachSeries,
     recentPosts,
+    distribution,
   };
 }

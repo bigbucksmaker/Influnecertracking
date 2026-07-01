@@ -41,11 +41,13 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  snapshots     AccountSnapshot[]
-  posts         Post[]
-  postSnapshots PostSnapshot[]
-  tags          AccountTag[]
-  apiCalls      ApiCallLog[]
+  snapshots      AccountSnapshot[]
+  posts          Post[]
+  postSnapshots  PostSnapshot[]
+  tags           AccountTag[]
+  apiCalls       ApiCallLog[]
+  placements     Placement[]
+  shortlistItems ShortlistItem[]
 
   @@index([status])
   @@index([pollingTier])
@@ -102,13 +104,87 @@ model Post {
   isFrozen      Boolean   @default(false) // true once older than freeze window & final snapshot taken
   frozenAt      DateTime?
   lastMetricsAt DateTime?
+  commissioned  Boolean   @default(false) // linked to a campaign Placement → extended tracking window
 
   account   Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
   snapshots PostSnapshot[]
+  placements Placement[]
 
   @@index([accountId, postedAt])
   @@index([isFrozen])
   @@index([postedAt])
+  @@index([commissioned])
+}
+
+/// A client campaign. Groups commissioned Placements. Price is stored on
+/// Placement but is NEVER read into any computed metric.
+model Campaign {
+  id        String    @id @default(cuid())
+  name      String
+  client    String
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+  status    String    @default("active") // active | closed
+  createdBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  placements Placement[]
+  shortlists Shortlist[]
+
+  @@index([status])
+}
+
+/// A saved shortlist of candidate creators, optionally scoped to a campaign.
+/// Columns surfaced are reach/engagement/median/consistency only — never rates.
+model Shortlist {
+  id         String   @id @default(cuid())
+  name       String
+  campaignId String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  items    ShortlistItem[]
+
+  @@index([campaignId])
+}
+
+model ShortlistItem {
+  id          String   @id @default(cuid())
+  shortlistId String
+  accountId   String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  shortlist Shortlist @relation(fields: [shortlistId], references: [id], onDelete: Cascade)
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([shortlistId, accountId])
+  @@index([shortlistId])
+  @@index([accountId])
+}
+
+/// A single commissioned post within a campaign. priceUsd is reference-only and
+/// is not used in any calculation (delivery is measured in reach/engagement).
+model Placement {
+  id         String   @id @default(cuid())
+  campaignId String
+  accountId  String
+  postId     String? // nullable until the tweet is ingested + linked
+  type       String   @default("post") // post | quote | thread | retweet
+  priceUsd   Float? // NOT USED in any calc — reference only
+  note       String?
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  post     Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([accountId])
+  @@index([postId])
 }
 
 /// Point-in-time metrics for a single tweet (the per-post time series).
@@ -170,6 +246,15 @@ model AppSettings {
   backfillDays     Int      @default(7)
   normalization    String   @default("percentile") // percentile | zscore
   includeReplies   Boolean  @default(false)
+
+  // Confidence & movers (Phase 1: ranking honesty)
+  minPostsForConfidence Int   @default(3)  // fewer authored posts in window → low confidence
+  stalePollHours        Int   @default(12) // last poll older than this → low confidence
+  fallingThreshold      Float @default(0.25) // WoW drop ≥ this flags a "falling" account
+
+  // Commissioned posts (Phase 2)
+  commissionedFreezeDays Int   @default(14)  // extended tracking window for commissioned posts
+  underdeliverThreshold  Float @default(0.7) // delivery ratio below this = underdelivered
 
   // Background poll job status (shared across users so progress survives refresh)
   pollRunningAt  DateTime?

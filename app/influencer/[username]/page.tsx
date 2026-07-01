@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { cachedInfluencerDetail, cachedLeaderboard } from "@/lib/cache";
 import { InfluencerCharts } from "@/components/InfluencerCharts";
+import { RemoveInfluencerButton } from "@/components/RemoveInfluencerButton";
 import { Card, StatCard, Badge, Avatar } from "@/components/ui";
 import { formatNumber, formatFull, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
 
@@ -17,14 +18,18 @@ export default async function InfluencerPage({
   const [detail, board] = await Promise.all([cachedInfluencerDetail(uname), cachedLeaderboard()]);
   if (!detail) notFound();
 
-  const { account, followerSeries, reachSeries, recentPosts } = detail;
+  const { account, followerSeries, reachSeries, recentPosts, distribution } = detail;
   const row = board.find((r) => r.accountId === account.id) ?? null;
+  const directionLabel = row?.direction === "rising" ? "▲ rising" : row?.direction === "falling" ? "▼ falling" : "flat";
 
   return (
     <>
-      <Link href="/leaderboard" className="text-sm text-slate-500 hover:text-slate-700">
-        ← Back to leaderboard
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link href="/leaderboard" className="text-sm text-slate-500 hover:text-slate-700">
+          ← Back to leaderboard
+        </Link>
+        <RemoveInfluencerButton id={account.id} username={account.username} />
+      </div>
 
       <Card className="mt-3 p-5">
         <div className="flex flex-wrap items-start gap-4">
@@ -39,6 +44,11 @@ export default async function InfluencerPage({
                 {account.pollingTier}
               </Badge>
               {account.status === "paused" && <Badge color="amber">paused</Badge>}
+              {row?.lowConfidence && (
+                <span title={row.lowConfidenceReasons.join("; ")}>
+                  <Badge color="amber">⚠ low-confidence</Badge>
+                </span>
+              )}
             </div>
             <a
               href={`https://x.com/${account.username}`}
@@ -84,19 +94,29 @@ export default async function InfluencerPage({
           sub={row?.followerGrowth7d != null ? `${formatSignedPct(row.followerGrowth7dPct)} 7d` : "—"}
           tone={row && row.followerGrowth7d != null && row.followerGrowth7d > 0 ? "good" : "default"}
         />
-        <StatCard label="Avg views/post" value={formatNumber(row?.avgViews ?? 0)} sub="trailing 7d" />
+        <StatCard
+          label="Median views"
+          value={formatNumber(row?.medianViews ?? 0)}
+          sub={row ? `p25 ${formatNumber(row.p25Views)} · trailing 7d` : "trailing 7d"}
+        />
         <StatCard label="ER (impr.)" value={formatPct(row?.erImpressions ?? 0)} sub="eng ÷ impressions" />
         <StatCard label="ER (foll.)" value={formatPct(row?.erFollowers ?? 0)} sub="eng ÷ followers" />
         <StatCard
           label="WoW views"
           value={row ? formatSignedPct(row.wowViewsPct) : "—"}
-          sub={row?.rising ? "▲ rising" : "week over week"}
-          tone={row && row.wowViewsPct != null && row.wowViewsPct > 0 ? "good" : "default"}
+          sub={row ? directionLabel : "week over week"}
+          tone={
+            row?.direction === "rising" ? "good" : row?.direction === "falling" ? "bad" : "default"
+          }
         />
       </div>
 
       <div className="mt-6">
-        <InfluencerCharts followerSeries={followerSeries} reachSeries={reachSeries} />
+        <InfluencerCharts
+          followerSeries={followerSeries}
+          reachSeries={reachSeries}
+          distribution={distribution}
+        />
       </div>
 
       <Card className="mt-6 overflow-hidden">

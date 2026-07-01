@@ -3,6 +3,8 @@ import { computeLeaderboard } from "./scoring";
 import { getCostSummary } from "./cost-summary";
 import { getAccountsOverview } from "./accounts";
 import { getInfluencerDetail } from "./metrics";
+import { getCampaignsOverview, getCampaignDetail } from "./placements";
+import { getShortlists } from "./shortlists";
 
 // The heavy read aggregations only change when a poll/backfill or a mutation
 // runs. Cache them so page navigations are served instantly instead of
@@ -22,3 +24,10 @@ export const cachedInfluencerDetail = unstable_cache(
   ["influencer-detail"],
   OPTS,
 );
+export const cachedCampaigns = unstable_cache(() => getCampaignsOverview(), ["campaigns"], OPTS);
+export const cachedCampaignDetail = unstable_cache(
+  (id: string) => getCampaignDetail(id),
+  ["campaign-detail"],
+  OPTS,
+);
+export const cachedShortlists = unstable_cache(() => getShortlists(), ["shortlists"], OPTS);

@@ -62,6 +62,38 @@ export async function getAllTags(): Promise<string[]> {
   return tags.map((t) => t.name);
 }
 
+/**
+ * Fully remove an account and everything that references it.
+ *
+ * The schema declares `onDelete: Cascade` for snapshots/posts/tags/placements/
+ * shortlist items (and `SetNull` for ApiCallLog), so a plain `account.delete`
+ * should cascade. But we delete children explicitly first — best-effort, tolerant
+ * of a not-yet-migrated table (Prisma P2021) — so the delete can't be silently
+ * blocked by a stale or missing FK cascade on the live DB. Children are removed
+ * before parents; the final `account.delete` cleans up anything not listed.
+ */
+export async function deleteAccountCascade(id: string): Promise<void> {
+  const swallowMissingTable = async (p: Promise<unknown>) => {
+    try {
+      await p;
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code;
+      if (code !== "P2021" && code !== "P2010") throw e; // table/relation not present yet
+    }
+  };
+
+  await swallowMissingTable(prisma.placement.deleteMany({ where: { accountId: id } }));
+  await swallowMissingTable(prisma.shortlistItem.deleteMany({ where: { accountId: id } }));
+  await swallowMissingTable(prisma.postSnapshot.deleteMany({ where: { accountId: id } }));
+  await swallowMissingTable(prisma.accountSnapshot.deleteMany({ where: { accountId: id } }));
+  await swallowMissingTable(prisma.accountTag.deleteMany({ where: { accountId: id } }));
+  await swallowMissingTable(prisma.post.deleteMany({ where: { accountId: id } }));
+  // deleteMany (not delete) so a concurrent/retried delete is idempotent — an
+  // already-removed row no-ops instead of throwing Prisma P2025 (→ spurious 500).
+  // Real DB errors still throw and surface as a 500.
+  await prisma.account.deleteMany({ where: { id } });
+}
+
 /** Coerce a rate input (string/number/blank) to a non-negative integer USD or null. */
 export function parseRateInput(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;

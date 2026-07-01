@@ -74,8 +74,14 @@ export function AccountsManager({
   async function act(id: string, fn: () => Promise<Response>) {
     setBusyId(id);
     try {
-      await fn();
+      const res = await fn();
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setMsg(d.error ?? "Action failed.");
+      }
       await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Action failed.");
     } finally {
       setBusyId(null);
     }
@@ -93,9 +99,29 @@ export function AccountsManager({
   const runBackfill = (a: AccountOverview) =>
     act(a.id, () => fetch(`/api/accounts/${a.id}/backfill`, { method: "POST" }));
 
-  const remove = (a: AccountOverview) => {
-    if (!confirm(`Remove @${a.username}? This deletes its snapshot history.`)) return Promise.resolve();
-    return act(a.id, () => fetch(`/api/accounts/${a.id}`, { method: "DELETE" }));
+  const remove = async (a: AccountOverview) => {
+    if (
+      !confirm(
+        `Remove @${a.username}?\n\nThis permanently deletes its snapshot history and removes it from any campaigns and shortlists. This cannot be undone.`,
+      )
+    )
+      return;
+    setBusyId(a.id);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/accounts/${a.id}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(d.error ?? `Failed to remove @${a.username}.`);
+        return;
+      }
+      setAccounts((prev) => prev.filter((x) => x.id !== a.id)); // optimistic
+      setMsg(`Removed @${a.username}.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : `Failed to remove @${a.username}.`);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const editTags = (a: AccountOverview) => {
@@ -244,9 +270,10 @@ export function AccountsManager({
                       <button
                         onClick={() => remove(a)}
                         disabled={busyId === a.id}
-                        className="text-slate-600 hover:text-red-600 disabled:opacity-50"
+                        className="rounded-md border border-red-200 px-2 py-1 font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        title={`Delete @${a.username} and all its data`}
                       >
-                        Remove
+                        {busyId === a.id ? "Removing…" : "Remove"}
                       </button>
                     </div>
                   </td>

@@ -3,7 +3,10 @@ import { getSettings } from "./settings";
 import type { AppSettings } from "@prisma/client";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 export const RISING_THRESHOLD = 0.25; // +25% WoW flags a "rising" account
+
+export type Direction = "rising" | "falling" | "flat";
 
 export interface LeaderboardRow {
   rank: number;
@@ -30,15 +33,30 @@ export interface LeaderboardRow {
   followerGrowth30dPct: number | null;
 
   postCount7d: number;
-  avgViews: number; // reach
+  avgViews: number; // mean views/post (kept for reference; NOT the score input)
+  medianViews: number; // reach input to the Performance Score (robust to viral spikes)
+  p25Views: number; // "floor" — 25th percentile views/post
+  consistency: number | null; // IQR ÷ median; lower = steadier (null if <2 posts)
   totalViews7d: number;
   avgEngagements: number;
   erImpressions: number; // engagements ÷ impressions
   erFollowers: number; // engagements ÷ followers
 
+  // Confidence layer
+  postsInWindow: number; // posts authored in the scoring window
+  dataFreshnessHours: number | null; // now − lastPolledAt, in hours
+  lowConfidence: boolean;
+  lowConfidenceReasons: string[];
+
+  // Movers
   wowViewsPct: number | null;
   wowEngPct: number | null;
   rising: boolean;
+  falling: boolean;
+  direction: Direction;
+
+  // Per-row 4-week weekly-median views sparkline (oldest → newest)
+  viewsSparkline: number[];
 
   reachNorm: number; // 0..100
   erNorm: number; // 0..100
@@ -47,6 +65,38 @@ export interface LeaderboardRow {
 
 function clamp(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x));
+}
+
+/** Linear-interpolated quantile (q in 0..1) of an ASC-sorted array. */
+export function quantileSorted(sorted: number[], q: number): number {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  if (n === 1) return sorted[0];
+  const pos = (n - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+export interface ViewSummary {
+  mean: number;
+  median: number;
+  p25: number;
+  consistency: number | null; // IQR / median, or null when undefined/<2 posts
+}
+
+/** Robust summary of a set of per-post view counts. */
+export function summarizeViews(views: number[]): ViewSummary {
+  const n = views.length;
+  if (n === 0) return { mean: 0, median: 0, p25: 0, consistency: null };
+  const sorted = [...views].sort((a, b) => a - b);
+  const mean = sorted.reduce((s, v) => s + v, 0) / n;
+  const median = quantileSorted(sorted, 0.5);
+  const p25 = quantileSorted(sorted, 0.25);
+  const p75 = quantileSorted(sorted, 0.75);
+  const consistency = n >= 2 && median > 0 ? (p75 - p25) / median : null;
+  return { mean, median, p25, consistency };
 }
 
 function percentileRanks(values: number[]): number[] {
@@ -73,8 +123,27 @@ function zScoreNorms(values: number[]): number[] {
   return values.map((x) => (std > 0 ? clamp(((x - mean) / std + 3) / 6 * 100, 0, 100) : 50));
 }
 
-function normalize(values: number[], method: string): number[] {
+export function normalize(values: number[], method: string): number[] {
   return method === "zscore" ? zScoreNorms(values) : percentileRanks(values);
+}
+
+/** Weekly-median views/post over the trailing `weeks` weeks (oldest → newest). */
+function weeklyMedianSparkline(
+  posts: { postedAt: Date; views: number }[],
+  now: number,
+  weeks: number,
+): number[] {
+  const buckets: number[][] = Array.from({ length: weeks }, () => []);
+  for (const p of posts) {
+    const ageDays = (now - p.postedAt.getTime()) / DAY_MS;
+    const weeksAgo = Math.floor(ageDays / 7);
+    if (weeksAgo < 0 || weeksAgo >= weeks) continue;
+    buckets[weeks - 1 - weeksAgo].push(p.views);
+  }
+  return buckets.map((b) => {
+    if (b.length === 0) return 0;
+    return Math.round(quantileSorted([...b].sort((a, c) => a - c), 0.5));
+  });
 }
 
 function findClosest(
@@ -100,6 +169,7 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
   const now = Date.now();
   const weekAgo = now - 7 * DAY_MS;
   const twoWeeksAgo = now - 14 * DAY_MS;
+  const fourWeeksAgo = now - 28 * DAY_MS;
   const monthAgo = now - 30 * DAY_MS;
 
   const accounts = await prisma.account.findMany({
@@ -129,12 +199,15 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
     histByAccount.set(s.accountId, arr);
   }
 
-  // posts authored in the last 14d (this week + last week), latest snapshot each
+  // Posts authored in the last 28d (4-week sparkline window), latest snapshot each.
+  // Scoring uses the 7d/14d subsets; the sparkline uses the full 28d. One query,
+  // no per-row round-trips (keeps the cached leaderboard fast).
   const posts = await prisma.post.findMany({
     where: {
       account: { status: "active" },
       isReply: false,
-      postedAt: { gte: new Date(twoWeeksAgo) },
+      commissioned: false, // organic reach only — paid placements are scored separately
+      postedAt: { gte: new Date(fourWeeksAgo) },
     },
     select: {
       accountId: true,
@@ -157,6 +230,10 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
     arr.push({ postedAt: p.postedAt, views: snap.viewCount, engagements: snap.engagements });
     postsByAccount.set(p.accountId, arr);
   }
+
+  const minPosts = settings.minPostsForConfidence;
+  const staleHours = settings.stalePollHours;
+  const fallThresh = settings.fallingThreshold;
 
   interface Interim extends Omit<LeaderboardRow, "rank" | "reachNorm" | "erNorm" | "performanceScore"> {}
   const interim: Interim[] = accounts.map((a) => {
@@ -183,12 +260,19 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
     const postCount7d = thisWeek.length;
     const totalViews7d = thisWeek.reduce((s, p) => s + p.views, 0);
     const totalEng7d = thisWeek.reduce((s, p) => s + p.engagements, 0);
-    const avgViews = postCount7d > 0 ? totalViews7d / postCount7d : 0;
+
+    const viewSummary = summarizeViews(thisWeek.map((p) => p.views));
+    const avgViews = viewSummary.mean;
+    const medianViews = viewSummary.median;
+    const p25Views = viewSummary.p25;
+    const consistency = viewSummary.consistency;
+
     const avgEngagements = postCount7d > 0 ? totalEng7d / postCount7d : 0;
     const erImpressions = totalViews7d > 0 ? totalEng7d / totalViews7d : 0;
     const erFollowers =
       currentFollowers && currentFollowers > 0 ? avgEngagements / currentFollowers : 0;
 
+    // Movers — this week's mean views/post vs last week's (mirror for engagement).
     const lwCount = lastWeek.length;
     const lwViews = lastWeek.reduce((s, p) => s + p.views, 0);
     const lwEng = lastWeek.reduce((s, p) => s + p.engagements, 0);
@@ -200,6 +284,32 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
       postCount7d > 0 &&
       ((wowViewsPct != null && wowViewsPct >= RISING_THRESHOLD) ||
         (wowEngPct != null && wowEngPct >= RISING_THRESHOLD));
+    const falling =
+      postCount7d > 0 &&
+      !rising &&
+      ((wowViewsPct != null && wowViewsPct <= -fallThresh) ||
+        (wowEngPct != null && wowEngPct <= -fallThresh));
+    const direction: Direction = rising ? "rising" : falling ? "falling" : "flat";
+
+    // Confidence
+    const postsInWindow = postCount7d;
+    const dataFreshnessHours = a.lastPolledAt
+      ? (now - a.lastPolledAt.getTime()) / HOUR_MS
+      : null;
+    const lowConfidenceReasons: string[] = [];
+    if (postsInWindow < minPosts) {
+      lowConfidenceReasons.push(
+        `only ${postsInWindow} post${postsInWindow === 1 ? "" : "s"} in 7d (need ${minPosts})`,
+      );
+    }
+    if (dataFreshnessHours == null) {
+      lowConfidenceReasons.push("never polled");
+    } else if (dataFreshnessHours > staleHours) {
+      lowConfidenceReasons.push(`data ${Math.round(dataFreshnessHours)}h stale`);
+    }
+    const lowConfidence = lowConfidenceReasons.length > 0;
+
+    const viewsSparkline = weeklyMedianSparkline(all, now, 4);
 
     return {
       accountId: a.id,
@@ -224,18 +334,28 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
       followerGrowth30dPct,
       postCount7d,
       avgViews,
+      medianViews,
+      p25Views,
+      consistency,
       totalViews7d,
       avgEngagements,
       erImpressions,
       erFollowers,
+      postsInWindow,
+      dataFreshnessHours,
+      lowConfidence,
+      lowConfidenceReasons,
       wowViewsPct,
       wowEngPct,
       rising,
+      falling,
+      direction,
+      viewsSparkline,
     };
   });
 
-  // normalize reach + engagement rate across the tracked set
-  const reachNorms = normalize(interim.map((r) => r.avgViews), settings.normalization);
+  // normalize reach (MEDIAN views) + engagement rate across the tracked set
+  const reachNorms = normalize(interim.map((r) => r.medianViews), settings.normalization);
   const erNorms = normalize(interim.map((r) => r.erImpressions), settings.normalization);
 
   const wSum = settings.reachWeight + settings.engagementWeight;
@@ -259,5 +379,13 @@ export function topMovers(rows: LeaderboardRow[], limit = 5): LeaderboardRow[] {
   return [...rows]
     .filter((r) => r.wowViewsPct != null && r.postCount7d > 0)
     .sort((a, b) => (b.wowViewsPct ?? 0) - (a.wowViewsPct ?? 0))
+    .slice(0, limit);
+}
+
+/** Biggest decliners by week-over-week views drop (for the dashboard). */
+export function topDecliners(rows: LeaderboardRow[], limit = 5): LeaderboardRow[] {
+  return [...rows]
+    .filter((r) => r.wowViewsPct != null && r.postCount7d > 0 && (r.wowViewsPct ?? 0) < 0)
+    .sort((a, b) => (a.wowViewsPct ?? 0) - (b.wowViewsPct ?? 0))
     .slice(0, limit);
 }
