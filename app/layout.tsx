@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { auth } from "@/auth";
 import { Nav } from "@/components/Nav";
+import { AskWidget } from "@/components/AskWidget";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
@@ -18,12 +19,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={`${inter.variable} ${mono.variable}`}>
       <body>
         {session?.user ? (
-          <div className="flex min-h-screen">
-            <Nav email={session.user.email ?? ""} />
-            <main className="min-w-0 flex-1">
-              <div className="mx-auto max-w-[1440px] px-6 py-7 lg:px-9">{children}</div>
-            </main>
-          </div>
+          <>
+            <div className="flex min-h-screen">
+              <Nav email={session.user.email ?? ""} />
+              <main className="min-w-0 flex-1">
+                <div className="mx-auto max-w-[1440px] px-6 py-7 lg:px-9">{children}</div>
+              </main>
+            </div>
+            <AskWidget />
+          </>
         ) : (
           children
         )}
