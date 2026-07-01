@@ -1,10 +1,7 @@
 // Atomik Growth — Influencer Tracking
-// Kept intentionally SQLite- AND Postgres-compatible:
-//   - no enums (Strings with documented values)
-//   - no scalar lists (join tables instead)
-//   - no Json columns
-// To deploy on Postgres: change `provider` to "postgresql" and point
-// DATABASE_URL at Neon / Vercel Postgres, then run `prisma db push`.
+// Postgres (Neon) in both dev and prod. DATABASE_URL comes from .env.local
+// locally and Vercel env vars in production.
+// Schema avoids enums / scalar-lists / JSON for portability.
 
 generator client {
   provider = "prisma-client-js"

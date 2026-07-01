@@ -133,9 +133,8 @@ Plan caps: Starter 3.13M · **Builder 11.29M (default)** · Pro 25.07M · Scale 
 See **[DEPLOY.md](DEPLOY.md)** for the full step-by-step runbook. In short:
 
 1. Push to GitHub, import into Vercel.
-2. Provision Postgres (Neon free tier or Vercel Postgres). **No schema edit needed** — the provider
-   auto-switches to `postgresql` when `DATABASE_URL` is a Postgres URL (`scripts/set-db-provider.mjs`).
-   Run `npm run db:push` + `npm run db:seed` against the prod `DATABASE_URL`.
+2. Provision Postgres (Neon free tier or Vercel Postgres). Set `DATABASE_URL` (pooled) and run
+   `npm run db:push` + `npm run db:seed` against it.
 3. Set all env vars in Vercel (Production + Preview); set `DEV_AUTH_BYPASS=false`. Add the prod Google
    redirect URI.
 4. `vercel.json` registers an **hourly** cron hitting `/api/cron/poll`. Adaptive tiering means each run

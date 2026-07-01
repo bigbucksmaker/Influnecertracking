@@ -5,10 +5,10 @@
   "description": "Atomik Growth — internal X (Twitter) influencer tracking & vetting tool",
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/set-db-provider.mjs && prisma generate && next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "db:push": "node scripts/set-db-provider.mjs && prisma db push",
+    "db:push": "prisma db push",
     "db:seed": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma db push --force-reset && npm run db:seed",

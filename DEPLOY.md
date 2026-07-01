@@ -1,8 +1,7 @@
 # Deployment runbook (Vercel + Postgres)
 
-The app runs on **SQLite locally** and **Postgres in production** automatically —
-`scripts/set-db-provider.mjs` picks the Prisma provider from `DATABASE_URL` at build
-time, so there's **no manual schema edit** needed.
+The app uses **Postgres (Neon)** in both dev and prod. `DATABASE_URL` is the only
+database config — set it in `.env.local` locally and in Vercel env vars for production.
 
 ## 1. Get a Postgres database
 
