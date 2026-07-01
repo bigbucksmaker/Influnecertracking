@@ -85,6 +85,45 @@ export function AskWidget() {
     addToolResult({ toolCallId: inv.toolCallId, result: { cancelled: true } });
   }
 
+  function renderInvocation(inv: Inv) {
+    const isWrite = inv.toolName === "addToShortlist" || inv.toolName === "runPoll";
+    if (isWrite && inv.state === "call") {
+      const a = inv.args ?? {};
+      const label =
+        inv.toolName === "runPoll"
+          ? "Refresh all tracked accounts now?"
+          : `Add @${String(a.username ?? "")} to ${String(a.shortlistName ?? "the shortlist")}?`;
+      return (
+        <div className="mt-2 rounded-xl border border-line bg-surface-2 p-3">
+          <div className="text-[13px] text-fg">{label}</div>
+          <div className="mt-2 flex gap-2">
+            <button onClick={() => confirmAction(inv)} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-600">
+              Confirm
+            </button>
+            <button onClick={() => cancelAction(inv)} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted hover:text-fg">
+              Cancel
+            </button>
+          </div>
+        </div>
+      );
+    }
+    if (isWrite && inv.state === "result") {
+      const res = (inv.result ?? {}) as { cancelled?: boolean; error?: string };
+      return (
+        <div className="mt-1.5 text-[11.5px] text-subtle">
+          {res.cancelled ? "Cancelled." : res.error ? `Failed: ${res.error}` : "Done."}
+        </div>
+      );
+    }
+    if (inv.state !== "result") return null;
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-subtle">
+        <span className="h-1 w-1 rounded-full bg-accent-400" />
+        {READ_LABELS[inv.toolName] ?? inv.toolName}
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Floating launcher */}
@@ -139,57 +178,36 @@ export function AskWidget() {
             )}
 
             {messages.map((m) => {
-              const invs = ((m as unknown as { toolInvocations?: Inv[] }).toolInvocations ?? []) as Inv[];
+              const parts = (m as unknown as { parts?: Array<Record<string, unknown>> }).parts;
+              const legacyInvs = ((m as unknown as { toolInvocations?: Inv[] }).toolInvocations ?? []) as Inv[];
               return (
                 <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
                   <div
                     className={
                       m.role === "user"
                         ? "max-w-[85%] rounded-2xl rounded-br-sm bg-accent-soft px-3 py-2 text-[13px] text-fg"
-                        : "max-w-[92%] text-[13px] text-fg"
+                        : "max-w-[92%] space-y-1 text-[13px] text-fg"
                     }
                   >
-                    {m.content && <RichText text={m.content} />}
-
-                    {invs.map((inv) => {
-                      const isWrite = inv.toolName === "addToShortlist" || inv.toolName === "runPoll";
-                      if (isWrite && inv.state === "call") {
-                        const a = inv.args ?? {};
-                        const label =
-                          inv.toolName === "runPoll"
-                            ? "Refresh all tracked accounts now?"
-                            : `Add @${String(a.username ?? "")} to ${String(a.shortlistName ?? "the shortlist")}?`;
-                        return (
-                          <div key={inv.toolCallId} className="mt-2 rounded-xl border border-line bg-surface-2 p-3">
-                            <div className="text-[13px] text-fg">{label}</div>
-                            <div className="mt-2 flex gap-2">
-                              <button onClick={() => confirmAction(inv)} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-600">
-                                Confirm
-                              </button>
-                              <button onClick={() => cancelAction(inv)} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted hover:text-fg">
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      }
-                      if (isWrite && inv.state === "result") {
-                        const res = (inv.result ?? {}) as { cancelled?: boolean; error?: string };
-                        return (
-                          <div key={inv.toolCallId} className="mt-1.5 text-[11.5px] text-subtle">
-                            {res.cancelled ? "Cancelled." : res.error ? `Failed: ${res.error}` : "Done."}
-                          </div>
-                        );
-                      }
-                      // read tools — subtle activity chip
-                      if (inv.state !== "result") return null;
-                      return (
-                        <div key={inv.toolCallId} className="mt-1.5 flex items-center gap-1.5 text-[11px] text-subtle">
-                          <span className="h-1 w-1 rounded-full bg-accent-400" />
-                          {READ_LABELS[inv.toolName] ?? inv.toolName}
-                        </div>
-                      );
-                    })}
+                    {parts && parts.length > 0 ? (
+                      parts.map((part, i) => {
+                        if (part.type === "text") {
+                          const t = part.text as string;
+                          return t ? <RichText key={i} text={t} /> : null;
+                        }
+                        if (part.type === "tool-invocation") {
+                          return <div key={i}>{renderInvocation(part.toolInvocation as Inv)}</div>;
+                        }
+                        return null;
+                      })
+                    ) : (
+                      <>
+                        {m.content && <RichText text={m.content} />}
+                        {legacyInvs.map((inv) => (
+                          <div key={inv.toolCallId}>{renderInvocation(inv)}</div>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </div>
               );
