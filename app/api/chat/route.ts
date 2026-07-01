@@ -30,5 +30,9 @@ export async function POST(req: Request) {
     temperature: 0.2,
   });
 
-  return result.toDataStreamResponse();
+  // Surface the real error to the client (internal tool) instead of the SDK's
+  // default masked "An error occurred." — makes failures diagnosable.
+  return result.toDataStreamResponse({
+    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+  });
 }

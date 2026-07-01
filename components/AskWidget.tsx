@@ -56,7 +56,7 @@ function RichText({ text }: { text: string }) {
 
 export function AskWidget() {
   const [open, setOpen] = useState(false);
-  const { messages, input, handleInputChange, handleSubmit, addToolResult, append, status } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, addToolResult, append, status, error, reload } = useChat({
     api: "/api/chat",
     maxSteps: 6,
   });
@@ -196,6 +196,16 @@ export function AskWidget() {
             })}
 
             {busy && <div className="text-[11.5px] text-subtle">Thinking…</div>}
+
+            {error && (
+              <div className="rounded-xl border border-neg/40 bg-neg-soft px-3 py-2 text-[12.5px] text-neg">
+                <div className="font-medium">Something went wrong</div>
+                <div className="mt-0.5 break-words text-[11.5px] opacity-90">{error.message || "Unknown error."}</div>
+                <button onClick={() => reload()} className="mt-1.5 text-[11.5px] font-medium underline hover:no-underline">
+                  Retry
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Input */}
