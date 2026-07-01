@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     messages: convertToCoreMessages(messages),
     tools: assistantTools,
     maxSteps: 6,
-    temperature: 0.2,
+    // Note: claude-sonnet-5 rejects an explicit `temperature` (deprecated on this model).
   });
 
   // Surface the real error to the client (internal tool) instead of the SDK's
