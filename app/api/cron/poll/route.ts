@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAuthorizedCron } from "@/lib/api";
-import { pollAllDue } from "@/lib/polling";
+import { runBackgroundPoll } from "@/lib/polling";
 import { revalidateTag } from "next/cache";
 import { CACHE_TAG } from "@/lib/cache";
 
@@ -9,14 +9,14 @@ export const dynamic = "force-dynamic";
 // Note: Vercel Hobby caps functions at 60s; Pro/Enterprise allow up to 300s.
 export const maxDuration = 300;
 
-// Vercel Cron hits this on a schedule (see vercel.json). Adaptive tiering lives
-// in pollAllDue(): it only polls accounts actually due per their tier, so this
-// can run frequently without re-polling everything each time.
+// Vercel Cron hits this on a schedule (see vercel.json). runBackgroundPoll only
+// polls accounts actually due per their tier, and takes the shared job lock so
+// it won't collide with a manual run.
 export async function GET(req: Request) {
   if (!isAuthorizedCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const summary = await pollAllDue();
+  const result = await runBackgroundPoll();
   revalidateTag(CACHE_TAG);
-  return NextResponse.json({ ok: true, summary });
+  return NextResponse.json({ ok: true, ...result });
 }

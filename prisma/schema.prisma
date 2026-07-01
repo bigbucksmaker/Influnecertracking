@@ -164,5 +164,12 @@ model AppSettings {
   backfillDays     Int      @default(7)
   normalization    String   @default("percentile") // percentile | zscore
   includeReplies   Boolean  @default(false)
-  updatedAt        DateTime @updatedAt
+
+  // Background poll job status (shared across users so progress survives refresh)
+  pollRunningAt  DateTime?
+  pollDone       Int       @default(0)
+  pollTotal      Int       @default(0)
+  pollFinishedAt DateTime?
+
+  updatedAt DateTime @updatedAt
 }

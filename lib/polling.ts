@@ -306,6 +306,53 @@ export async function pollAllDue(
   return summary;
 }
 
+/**
+ * Server-side background poll: drains all due accounts in one server process
+ * (survives client refresh), with a DB-backed heartbeat + progress that every
+ * user/tab reads consistently. A lock (pollRunningAt) prevents overlapping runs.
+ */
+export async function runBackgroundPoll(
+  opts: { force?: boolean } = {},
+): Promise<{ started: boolean; reason?: string; total?: number }> {
+  const settings = await getSettings();
+  const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+  if (settings.pollRunningAt && Date.now() - settings.pollRunningAt.getTime() < HEARTBEAT_STALE_MS) {
+    return { started: false, reason: "already-running" };
+  }
+
+  const now = Date.now();
+  const accounts = await prisma.account.findMany({ where: { status: "active" } });
+  const due = opts.force ? accounts : accounts.filter((a) => isDue(a, settings, now));
+  const capturedAt = new Date();
+
+  await prisma.appSettings.update({
+    where: { id: "singleton" },
+    data: { pollRunningAt: capturedAt, pollDone: 0, pollTotal: due.length, pollFinishedAt: null },
+  });
+
+  let done = 0;
+  try {
+    await pool(due, 6, async (a) => {
+      await pollAccount(a.id, { capturedAt, settings });
+      done++;
+      // heartbeat + progress every few accounts
+      if (done % 5 === 0) {
+        await prisma.appSettings
+          .update({ where: { id: "singleton" }, data: { pollDone: done, pollRunningAt: new Date() } })
+          .catch(() => {});
+      }
+    });
+  } finally {
+    await prisma.appSettings
+      .update({
+        where: { id: "singleton" },
+        data: { pollDone: done, pollFinishedAt: new Date(), pollRunningAt: null },
+      })
+      .catch(() => {});
+  }
+  return { started: true, total: due.length };
+}
+
 /** Backfill every account still missing history (safety net / manual). */
 export async function backfillPending(concurrency = 3): Promise<PollRunSummary> {
   const settings = await getSettings();

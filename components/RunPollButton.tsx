@@ -1,81 +1,109 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// Drain the due-queue in small batches: never hits the serverless time limit,
-// and lets us show a progress bar + ETA. Each polled account stops being "due",
-// so successive batches naturally work through the whole list.
-const BATCH = 15;
+interface PollStatus {
+  total: number;
+  backfilled: number;
+  pending: number;
+  running: boolean;
+  done: number;
+  pollTotal: number;
+  startedAt: string | null;
+  lastPollAt: string | null;
+}
 
 export function RunPollButton() {
   const router = useRouter();
-  const [running, setRunning] = useState(false);
-  const [done, setDone] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [eta, setEta] = useState<number | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [status, setStatus] = useState<PollStatus | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchStatus = useCallback(async (): Promise<PollStatus | null> => {
+    try {
+      const r = await fetch("/api/poll/status", { cache: "no-store" });
+      if (!r.ok) return null;
+      const s: PollStatus = await r.json();
+      setStatus(s);
+      return s;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    if (timer.current) return;
+    timer.current = setInterval(async () => {
+      const s = await fetchStatus();
+      if (s && !s.running) {
+        if (timer.current) clearInterval(timer.current);
+        timer.current = null;
+        router.refresh(); // pull fresh data into the tables when the job ends
+      }
+    }, 2500);
+  }, [fetchStatus, router]);
+
+  // On mount, adopt any in-progress run (survives refresh; shared across tabs/users).
+  useEffect(() => {
+    fetchStatus().then((s) => {
+      if (s?.running) startPolling();
+    });
+    return () => {
+      if (timer.current) clearInterval(timer.current);
+    };
+  }, [fetchStatus, startPolling]);
 
   async function run() {
-    setRunning(true);
-    setMsg(null);
-    setDone(0);
-    setTotal(0);
-    setEta(null);
-    const start = Date.now();
-    let processed = 0;
-    let credits = 0;
-    let failed = 0;
-
+    setStarting(true);
+    setErr(null);
     try {
-      while (true) {
-        const res = await fetch("/api/poll", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ limit: BATCH }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Poll failed");
-
-        const s = data.summary;
-        processed += s.accountsRun;
-        credits += s.credits;
-        failed += s.failed;
-        const remaining = s.remaining ?? 0;
-
-        setDone(processed);
-        setTotal(processed + remaining);
-        const elapsed = (Date.now() - start) / 1000;
-        setEta(processed > 0 && remaining > 0 ? Math.round((elapsed / processed) * remaining) : 0);
-        router.refresh(); // stream results into the tables as we go
-
-        if (remaining <= 0 || s.accountsRun === 0) break;
-      }
-      setMsg(
-        `Done — ${processed} account(s) polled${failed ? `, ${failed} failed` : ""} · ${credits.toLocaleString()} credits`,
-      );
-      router.refresh();
+      const r = await fetch("/api/poll", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Failed to start poll");
+      await fetchStatus();
+      startPolling();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Poll failed");
+      setErr(e instanceof Error ? e.message : "Failed to start poll");
     } finally {
-      setRunning(false);
-      setEta(null);
+      setStarting(false);
     }
   }
 
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const running = !!status?.running;
+  const done = running ? status!.done : (status?.backfilled ?? 0);
+  const total = running ? status!.pollTotal : (status?.total ?? 0);
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+
+  const eta = (() => {
+    if (!running || !status?.startedAt || status.done <= 0) return null;
+    const elapsed = (Date.now() - new Date(status.startedAt).getTime()) / 1000;
+    const remaining = status.pollTotal - status.done;
+    if (remaining <= 0) return 0;
+    return Math.round((elapsed / status.done) * remaining);
+  })();
 
   return (
     <div className="flex flex-col items-end gap-1">
       <button
         onClick={run}
-        disabled={running}
+        disabled={starting || running}
         className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
       >
-        {running ? `Polling… ${done}/${total || "…"}` : "Run poll now"}
+        {running
+          ? `Polling… ${status!.done}/${status!.pollTotal}`
+          : starting
+            ? "Starting…"
+            : "Run poll now"}
       </button>
-      {running && total > 0 && (
-        <div className="w-56">
+
+      {running && (
+        <div className="w-60">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full rounded-full bg-brand-500 transition-all"
@@ -83,12 +111,18 @@ export function RunPollButton() {
             />
           </div>
           <div className="mt-0.5 text-right text-xs text-slate-500">
-            {done}/{total}
-            {eta != null && eta > 0 ? ` · ~${fmtEta(eta)} left` : ""}
+            {status!.done}/{status!.pollTotal}
+            {eta != null && eta > 0 ? ` · ~${fmtEta(eta)} left` : ""} · runs in background
           </div>
         </div>
       )}
-      {!running && msg && <span className="max-w-xs text-right text-xs text-slate-500">{msg}</span>}
+
+      {!running && status && status.pending > 0 && (
+        <span className="text-xs text-slate-500">
+          {status.backfilled}/{status.total} backfilled
+        </span>
+      )}
+      {err && <span className="max-w-xs text-right text-xs text-red-600">{err}</span>}
     </div>
   );
 }
