@@ -26,7 +26,7 @@ export default async function CostPage() {
         title="Cost tracking"
         description="Every provider call is logged. Credits shown at 100,000 credits = $1."
         actions={
-          <Link href="/settings" className="text-sm text-brand-600 hover:underline">
+          <Link href="/settings" className="text-sm text-accent-400 hover:underline">
             Adjust cap & cadence →
           </Link>
         }
@@ -35,15 +35,15 @@ export default async function CostPage() {
       <CostWidget summary={cost} />
 
       <Card className="mt-4 p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Daily spend (last 30 days)</h2>
+        <h2 className="mb-3 text-sm font-semibold text-fg">Daily spend (last 30 days)</h2>
         <CostDailyChart data={cost.byDay} />
       </Card>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">By endpoint (this month)</h2>
+          <h2 className="mb-3 text-sm font-semibold text-fg">By endpoint (this month)</h2>
           <table className="data w-full text-sm">
-            <thead className="border-b border-slate-200">
+            <thead className="border-b border-line">
               <tr>
                 <th className="py-2 text-left">Endpoint</th>
                 <th className="py-2 text-right">Requests</th>
@@ -53,7 +53,7 @@ export default async function CostPage() {
             </thead>
             <tbody>
               {cost.byEndpoint.map((e) => (
-                <tr key={e.endpoint} className="border-b border-slate-100 last:border-0">
+                <tr key={e.endpoint} className="border-b border-line-soft last:border-0">
                   <td className="py-2">{ENDPOINT_LABELS[e.endpoint] ?? e.endpoint}</td>
                   <td className="py-2 text-right tabular-nums">{formatNumber(e.requests)}</td>
                   <td className="py-2 text-right tabular-nums">{formatCredits(e.credits)}</td>
@@ -62,7 +62,7 @@ export default async function CostPage() {
               ))}
               {cost.byEndpoint.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-500">
+                  <td colSpan={4} className="py-8 text-center text-subtle">
                     No API calls yet this month.
                   </td>
                 </tr>
@@ -72,9 +72,9 @@ export default async function CostPage() {
         </Card>
 
         <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Top spend by influencer</h2>
+          <h2 className="mb-3 text-sm font-semibold text-fg">Top spend by influencer</h2>
           <table className="data w-full text-sm">
-            <thead className="border-b border-slate-200">
+            <thead className="border-b border-line">
               <tr>
                 <th className="py-2 text-left">Account</th>
                 <th className="py-2 text-right">Requests</th>
@@ -84,14 +84,14 @@ export default async function CostPage() {
             </thead>
             <tbody>
               {cost.byInfluencer.map((i) => (
-                <tr key={i.accountId ?? "none"} className="border-b border-slate-100 last:border-0">
+                <tr key={i.accountId ?? "none"} className="border-b border-line-soft last:border-0">
                   <td className="py-2">
                     {i.accountId ? (
-                      <Link href={`/influencer/${i.username}`} className="text-brand-600 hover:underline">
+                      <Link href={`/influencer/${i.username}`} className="text-accent-400 hover:underline">
                         @{i.username}
                       </Link>
                     ) : (
-                      <span className="text-slate-500">{i.username}</span>
+                      <span className="text-subtle">{i.username}</span>
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{formatNumber(i.requests)}</td>
@@ -101,7 +101,7 @@ export default async function CostPage() {
               ))}
               {cost.byInfluencer.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-500">
+                  <td colSpan={4} className="py-8 text-center text-subtle">
                     No attributed spend yet.
                   </td>
                 </tr>
@@ -112,13 +112,13 @@ export default async function CostPage() {
       </div>
 
       <Card className="mt-4 p-5">
-        <h2 className="mb-1 text-sm font-semibold text-slate-900">Plan tiers</h2>
-        <p className="mb-3 text-xs text-slate-500">
+        <h2 className="mb-1 text-sm font-semibold text-fg">Plan tiers</h2>
+        <p className="mb-3 text-xs text-subtle">
           Based on your projected month-end spend of{" "}
           <b>{formatCredits(cost.projectedMonth)}</b>, the recommended plan is highlighted.
         </p>
         <table className="data w-full text-sm">
-          <thead className="border-b border-slate-200">
+          <thead className="border-b border-line">
             <tr>
               <th className="py-2 text-left">Plan</th>
               <th className="py-2 text-right">Monthly credits</th>
@@ -132,7 +132,7 @@ export default async function CostPage() {
               const isCurrent = t.credits === cost.planCapCredits;
               const isRecommended = cost.recommendedPlan?.name === t.name;
               return (
-                <tr key={t.name} className="border-b border-slate-100 last:border-0">
+                <tr key={t.name} className="border-b border-line-soft last:border-0">
                   <td className="py-2 font-medium">{t.name}</td>
                   <td className="py-2 text-right tabular-nums">{formatCredits(t.credits)}</td>
                   <td className="py-2 text-right tabular-nums">{formatUsd(t.usd)}/mo</td>

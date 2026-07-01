@@ -38,12 +38,12 @@ export function RemoveInfluencerButton({ id, username }: { id: string; username:
       <button
         onClick={remove}
         disabled={busy}
-        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+        className="rounded-lg border border-neg/40 px-3 py-1.5 text-sm font-medium text-neg hover:bg-neg-soft disabled:opacity-60"
         title={`Delete @${username} from the watchlist`}
       >
         {busy ? "Removing…" : "Remove from watchlist"}
       </button>
-      {err && <span className="mt-1 max-w-xs text-right text-xs text-red-600">{err}</span>}
+      {err && <span className="mt-1 max-w-xs text-right text-xs text-neg">{err}</span>}
     </div>
   );
 }

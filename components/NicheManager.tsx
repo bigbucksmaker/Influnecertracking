@@ -86,8 +86,8 @@ export function NicheManager({ hasKey }: { hasKey: boolean }) {
   return (
     <div className="space-y-6">
       {!hasKey && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          Set <code className="rounded bg-amber-100 px-1">ANTHROPIC_API_KEY</code> in your env (and
+        <div className="rounded-lg border border-warn/40 bg-warn-soft p-3 text-sm text-warn">
+          Set <code className="rounded bg-warn-soft px-1">ANTHROPIC_API_KEY</code> in your env (and
           in Vercel) to use this feature.
         </div>
       )}
@@ -95,15 +95,15 @@ export function NicheManager({ hasKey }: { hasKey: boolean }) {
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">1 · Generate niche suggestions</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <h2 className="text-sm font-semibold text-fg">1 · Generate niche suggestions</h2>
+            <p className="mt-0.5 text-xs text-subtle">
               Analyzes stored post text with Claude Sonnet. No twitterapi.io credits. ~5–10s.
             </p>
           </div>
           <button
             onClick={suggest}
             disabled={proposing || applying}
-            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
           >
             {proposing ? "Analyzing…" : "Suggest niches with AI"}
           </button>
@@ -112,8 +112,8 @@ export function NicheManager({ hasKey }: { hasKey: boolean }) {
 
       {niches.length > 0 && (
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-slate-900">2 · Review &amp; edit</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <h2 className="text-sm font-semibold text-fg">2 · Review &amp; edit</h2>
+          <p className="mt-0.5 text-xs text-subtle">
             Rename, remove, or add categories before applying. Only these exact names get assigned.
           </p>
           <div className="mt-3 space-y-2">
@@ -123,44 +123,44 @@ export function NicheManager({ hasKey }: { hasKey: boolean }) {
                   value={n.name}
                   onChange={(e) => update(i, "name", e.target.value)}
                   placeholder="Niche"
-                  className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium"
+                  className="w-40 rounded-lg border border-line px-2 py-1 text-sm font-medium"
                 />
                 <input
                   value={n.description}
                   onChange={(e) => update(i, "description", e.target.value)}
                   placeholder="Description"
-                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                  className="flex-1 rounded-lg border border-line px-2 py-1 text-sm"
                 />
                 <button
                   onClick={() => remove(i)}
-                  className="text-xs text-slate-500 hover:text-red-600"
+                  className="text-xs text-subtle hover:text-neg"
                 >
                   remove
                 </button>
               </div>
             ))}
           </div>
-          <button onClick={add} className="mt-2 text-xs text-brand-600 hover:underline">
+          <button onClick={add} className="mt-2 text-xs text-accent-400 hover:underline">
             + add niche
           </button>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line-soft pt-4">
             <button
               onClick={apply}
               disabled={applying}
-              className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-600 disabled:opacity-60"
             >
               {applying ? `Applying… ${done}/${total || "…"}` : "3 · Apply to all influencers"}
             </button>
             {applying && total > 0 && (
               <div className="w-56">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                   <div
-                    className="h-full rounded-full bg-brand-500 transition-all"
+                    className="h-full rounded-full bg-accent transition-all"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <div className="mt-0.5 text-right text-xs text-slate-500">
+                <div className="mt-0.5 text-right text-xs text-subtle">
                   {done}/{total}
                 </div>
               </div>
@@ -169,8 +169,8 @@ export function NicheManager({ hasKey }: { hasKey: boolean }) {
         </Card>
       )}
 
-      {msg && <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{msg}</div>}
-      {err && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+      {msg && <div className="rounded-lg bg-surface-2 p-3 text-sm text-muted">{msg}</div>}
+      {err && <div className="rounded-lg border border-neg/40 bg-neg-soft p-3 text-sm text-neg">{err}</div>}
     </div>
   );
 }
