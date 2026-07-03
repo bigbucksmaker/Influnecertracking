@@ -52,6 +52,69 @@ function windowDelta(series: LiveSeriesPoint[], key: keyof LiveSeriesPoint, wind
   return (Number(last[key]) - Number(ref[key])) as number;
 }
 
+/**
+ * Live-estimated counter: holds the last actual value and advances it every
+ * second by the current per-minute pace, snapping back to the actual on each
+ * refresh. Makes the big numbers tick like a real counter between beats.
+ */
+function useLiveEstimate(actual: number | null, ratePerMin: number | null, enabled: boolean): number | null {
+  const [est, setEst] = useState<number | null>(actual);
+  useEffect(() => setEst(actual), [actual]);
+  useEffect(() => {
+    if (!enabled || actual == null || ratePerMin == null || ratePerMin <= 0) return;
+    const id = setInterval(() => setEst((e) => (e == null ? e : e + ratePerMin / 60)), 1000);
+    return () => clearInterval(id);
+  }, [enabled, actual, ratePerMin]);
+  return est;
+}
+
+/** rAF ease-out tween towards a target number (for readouts that jump per refresh). */
+function useAnimatedNumber(target: number | null): number | null {
+  const [display, setDisplay] = useState<number | null>(target);
+  const fromRef = useRef<number | null>(target);
+  useEffect(() => {
+    if (target == null) {
+      setDisplay(null);
+      fromRef.current = null;
+      return;
+    }
+    const from = fromRef.current ?? target;
+    if (from === target) {
+      setDisplay(target);
+      fromRef.current = target;
+      return;
+    }
+    const start = performance.now();
+    const dur = 700;
+    let raf = 0;
+    const step = (now: number) => {
+      const p = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const v = from + (target - from) * eased;
+      setDisplay(v);
+      fromRef.current = v;
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+  return display;
+}
+
+/** The blip on the newest beat — radiating SMIL ring, no JS per frame. */
+function PulseDot({ cx, cy }: { cx?: number; cy?: number }) {
+  if (cx == null || cy == null) return <g />;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={4} fill="#37C08A" stroke="#07080A" strokeWidth={1.5} />
+      <circle cx={cx} cy={cy} r={4} fill="none" stroke="#37C08A" strokeWidth={1.5}>
+        <animate attributeName="r" from="4" to="17" dur="1.4s" repeatCount="indefinite" />
+        <animate attributeName="opacity" from="0.8" to="0" dur="1.4s" repeatCount="indefinite" />
+      </circle>
+    </g>
+  );
+}
+
 /** Per-minute pace over the trailing window. */
 function pace(series: LiveSeriesPoint[], key: keyof LiveSeriesPoint, windowMin: number): number | null {
   if (series.length < 2) return null;
@@ -217,6 +280,21 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
   const viewsPace15 = pace(series, "views", 15);
   const engPace5 = pace(series, "engagements", 5);
 
+  // Living numbers: tick up each second at the current pace, snap on refresh.
+  const liveViews = useLiveEstimate(latest?.views ?? null, viewsPace5, live);
+  const liveEng = useLiveEstimate(latest?.engagements ?? null, engPace5, live);
+  const animatedPulse = useAnimatedNumber(lastPulse?.viewsPerMin ?? null);
+
+  // The tab itself becomes a ticker while live.
+  useEffect(() => {
+    if (!live || viewsPace5 == null) return;
+    const orig = document.title;
+    document.title = `▲ ${formatNumber(Math.round(viewsPace5))}/min · ${tracker.label ?? "@" + tracker.post.author.username}`;
+    return () => {
+      document.title = orig;
+    };
+  }, [live, viewsPace5, tracker.label, tracker.post.author.username]);
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -361,8 +439,8 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
       {/* Ticker */}
       <Card className="overflow-x-auto p-0">
         <div className="flex min-w-[900px] items-stretch">
-          <Tick label="Views" value={latest?.views} delta={windowDelta(series, "views", 5)} big />
-          <Tick label="Engagements" value={latest?.engagements} delta={windowDelta(series, "engagements", 5)} big />
+          <Tick label="Views" value={liveViews ?? latest?.views} delta={windowDelta(series, "views", 5)} big live={live} />
+          <Tick label="Engagements" value={liveEng ?? latest?.engagements} delta={windowDelta(series, "engagements", 5)} big live={live} />
           <Tick label="Likes" value={latest?.likes} delta={windowDelta(series, "likes", 5)} />
           <Tick label="Reposts" value={latest?.retweets} delta={windowDelta(series, "retweets", 5)} />
           <Tick label="Replies" value={latest?.replies} delta={windowDelta(series, "replies", 5)} />
@@ -404,7 +482,7 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
           </div>
           {lastPulse && (
             <div className="font-mono text-lg font-semibold tabular-nums text-pos">
-              {formatNumber(lastPulse.viewsPerMin)}
+              {formatNumber(Math.round(animatedPulse ?? lastPulse.viewsPerMin))}
               <span className="ml-1 text-xs font-normal text-subtle">/min now</span>
             </div>
           )}
@@ -412,8 +490,10 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
         {pulse.length < 2 ? (
           <EmptyChart />
         ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <ComposedChart data={pulse}>
+          <div className="pulse-chart relative overflow-hidden rounded-lg bg-black/25">
+            {live && <span aria-hidden className="pulse-scan" />}
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={pulse}>
               <defs>
                 <linearGradient id="pulseFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#37C08A" stopOpacity={0.28} />
@@ -451,13 +531,15 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
                 isAnimationActive={false}
               />
               {lastPulse && (
-                <>
-                  <ReferenceDot x={lastPulse.t} y={lastPulse.viewsPerMin} r={7} fill="rgba(55,192,138,0.25)" stroke="none" />
-                  <ReferenceDot x={lastPulse.t} y={lastPulse.viewsPerMin} r={3.5} fill="#37C08A" stroke="#07080A" strokeWidth={1.5} />
-                </>
+                <ReferenceDot
+                  x={lastPulse.t}
+                  y={lastPulse.viewsPerMin}
+                  shape={(p: { cx?: number; cy?: number }) => <PulseDot cx={p.cx} cy={p.cy} />}
+                />
               )}
-            </ComposedChart>
-          </ResponsiveContainer>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </Card>
 
@@ -542,17 +624,22 @@ function Tick({
   value,
   delta,
   big = false,
-  fmt = (v: number) => formatNumber(v),
+  live = false,
+  fmt = (v: number) => formatNumber(Math.round(v)),
 }: {
   label: string;
   value: number | null | undefined;
   delta?: number | null;
   big?: boolean;
+  live?: boolean;
   fmt?: (v: number) => string;
 }) {
   return (
     <div className="flex flex-1 flex-col gap-0.5 border-l border-line-soft px-4 py-3 first:border-l-0">
-      <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-subtle">{label}</span>
+      <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-subtle">
+        {label}
+        {live && big && <span className="h-1 w-1 animate-pulse-soft rounded-full bg-pos" title="Ticking live — estimated between beats from current pace, snaps to actuals on each refresh" />}
+      </span>
       <span className={clsx("font-mono font-medium tabular-nums text-fg", big ? "text-2xl" : "text-lg")}>
         {value != null ? fmt(value) : "—"}
       </span>
