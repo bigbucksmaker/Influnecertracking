@@ -6,7 +6,10 @@ import { SYSTEM_PROMPT, ASSISTANT_MODEL } from "@/lib/assistant/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Six tool steps against a cold Neon can legitimately exceed 60s; when Vercel
+// kills the function mid-stream the widget hangs on the typing dots forever.
+// Vercel Pro allows 300s — give the chain room to finish.
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const user = await requireUser();

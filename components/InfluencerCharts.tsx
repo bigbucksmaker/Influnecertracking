@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Cell,
   LabelList,
@@ -18,7 +18,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { FollowerPoint, ReachPoint, ViewDistribution } from "@/lib/metrics";
+import type { FollowerPoint, ReachPoint, DailyPoint, ViewDistribution } from "@/lib/metrics";
 import { Card } from "./ui";
 import { formatNumber, formatPct } from "@/lib/format";
 
@@ -41,10 +41,12 @@ export const TOOLTIP_STYLE = {
 export function InfluencerCharts({
   followerSeries,
   reachSeries,
+  dailySeries,
   distribution,
 }: {
   followerSeries: FollowerPoint[];
   reachSeries: ReachPoint[];
+  dailySeries?: DailyPoint[];
   distribution?: ViewDistribution;
 }) {
   const [range, setRange] = useState<7 | 30>(30);
@@ -58,6 +60,11 @@ export function InfluencerCharts({
     () => (reachSeries ?? []).filter((p) => new Date(p.t).getTime() >= cutoff),
     [reachSeries, cutoff],
   );
+  const daily = useMemo(
+    () => (dailySeries ?? []).filter((p) => new Date(p.t).getTime() >= cutoff),
+    [dailySeries, cutoff],
+  );
+  const postedDays = daily.filter((d) => d.postCount > 0).length;
 
   const tick = (t: string) => {
     const d = new Date(t);
@@ -94,20 +101,28 @@ export function InfluencerCharts({
           </LineChart>
         </ChartCard>
 
-        <ChartCard title="Post views (cumulative)" empty={reach.length < 2}>
-          <AreaChart data={reach}>
+        <ChartCard title="Median views / day" empty={postedDays < 1}>
+          <BarChart data={daily}>
             <defs>
-              <linearGradient id="views" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#7C6DF7" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#7C6DF7" stopOpacity={0} />
+              <linearGradient id="dailyMedian" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#9B8FFA" stopOpacity={0.95} />
+                <stop offset="100%" stopColor="#5B49E0" stopOpacity={0.85} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#23272F" vertical={false} />
             <XAxis dataKey="t" tickFormatter={tick} minTickGap={24} tick={{ fontSize: 11 }} />
             <YAxis tickFormatter={(v) => formatNumber(v)} width={44} tick={{ fontSize: 11 }} />
-            <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={tick} />
-            <Area type="monotone" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#views)" />
-          </AreaChart>
+            <Tooltip
+              {...TOOLTIP_STYLE}
+              cursor={{ fill: "rgba(124,109,247,0.08)" }}
+              formatter={(v: number) => formatNumber(v)}
+              labelFormatter={(t: string) => {
+                const d = daily.find((x) => x.t === t);
+                return `${tick(t)} · ${d?.postCount ?? 0} post${d?.postCount === 1 ? "" : "s"}`;
+              }}
+            />
+            <Bar dataKey="medianViews" name="median views" fill="url(#dailyMedian)" radius={[3, 3, 0, 0]} maxBarSize={22} />
+          </BarChart>
         </ChartCard>
 
         <ChartCard title="Engagement rate" empty={reach.length < 2}>

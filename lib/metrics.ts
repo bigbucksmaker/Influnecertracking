@@ -17,6 +17,12 @@ export interface ReachPoint {
   engagementRate: number; // engagements / views
 }
 
+export interface DailyPoint {
+  t: string; // ISO day (midnight UTC)
+  medianViews: number | null; // median latest views of ORGANIC posts authored that day (null = no posts)
+  postCount: number;
+}
+
 export interface RecentPost {
   id: string;
   text: string;
@@ -78,8 +84,42 @@ export interface InfluencerDetail {
   };
   followerSeries: FollowerPoint[];
   reachSeries: ReachPoint[];
+  dailySeries: DailyPoint[]; // median views per posting day, trailing 30d
   recentPosts: RecentPost[];
   distribution: ViewDistribution;
+}
+
+/**
+ * Median views per posting day: for each of the trailing `days`, the median of
+ * the LATEST view counts of organic posts authored that day. Days with no posts
+ * are null (chart gap) rather than zero — no posts is an absence, never a zero.
+ */
+function buildDailySeries(
+  posts: { postedAt: string; views: number; commissioned: boolean }[],
+  days = 30,
+): DailyPoint[] {
+  const byDay = new Map<string, number[]>();
+  for (const p of posts) {
+    if (p.commissioned) continue; // organic performance only
+    const day = p.postedAt.slice(0, 10);
+    const arr = byDay.get(day) ?? [];
+    arr.push(p.views);
+    byDay.set(day, arr);
+  }
+  const out: DailyPoint[] = [];
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * DAY_MS);
+    const key = d.toISOString().slice(0, 10);
+    const views = byDay.get(key);
+    out.push({
+      t: d.toISOString(),
+      medianViews: views && views.length ? Math.round(summarizeViews(views).median) : null,
+      postCount: views?.length ?? 0,
+    });
+  }
+  return out;
 }
 
 /** Carry-forward totals: at each run timestamp, sum each post's last-known value
@@ -226,6 +266,10 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
     domainDays,
   };
 
+  const dailySeries = buildDailySeries(
+    recentPosts.map((p) => ({ postedAt: p.postedAt, views: p.views, commissioned: p.commissioned })),
+  );
+
   return {
     account: {
       id: account.id,
@@ -244,6 +288,7 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
     },
     followerSeries,
     reachSeries,
+    dailySeries,
     recentPosts,
     distribution,
   };
