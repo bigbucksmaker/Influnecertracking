@@ -21,6 +21,7 @@
 import { prisma } from "./db";
 import { getAnthropic, NICHE_MODEL } from "./anthropic";
 import { median } from "./stats";
+import { signalWeightedEngagement, ALGO_CONTEXT, type SignalCounts } from "./x-algo";
 import {
   makeGrid,
   paceOnGrid,
@@ -405,6 +406,9 @@ export interface LaunchStats {
   qtTotalViews: number;
   rosterAttributedViews: number;
   attribution: AttributionSummary | null;
+  /** Engagement gained over the window, split by signal — counted the way the
+   *  ranker values it (see lib/x-algo.ts; relativities are directional). */
+  signalMix: (SignalCounts & { weightedScore: number; weightedReplyShare: number }) | null;
   impacts: QuoteImpactView[];
   profiles: AmplifierProfile[];
   series: { t: string; views: number; engagements: number }[];
@@ -463,7 +467,7 @@ async function writeNarrative(stats: LaunchStats): Promise<LaunchNarrative | nul
         {
           role: "user",
           content:
-            `You are writing the launch recap for an influencer-marketing ops team. The stats below come from regression attribution over a live-tracked launch post on X: the post's pace curve was decomposed into an organic baseline plus per-quote-tweet exposure kernels; attributedViews and transferRate (main-post views per view on the QT) are MEASURED via non-negative least squares. method "cluster-split" means several burst QTs shared one kernel and credit was split by their observed views — present those as a group with individual estimates. insufficientData rows have no measurement — never cite them as impact. The attribution block gives the launch-level split (baseline vs excess vs attributed vs unattributed) and the regression fit r2 — mention the fit honestly if it is weak (<0.4).\n\nRules: every number must come from the data. Keep it sharp and operator-grade; no fluff.\n\nDATA:\n${JSON.stringify(compact)}`,
+            `You are writing the launch recap for an influencer-marketing ops team. The stats below come from regression attribution over a live-tracked launch post on X: the post's pace curve was decomposed into an organic baseline plus per-quote-tweet exposure kernels; attributedViews and transferRate (main-post views per view on the QT) are MEASURED via non-negative least squares. method "cluster-split" means several burst QTs shared one kernel and credit was split by their observed views — present those as a group with individual estimates. insufficientData rows have no measurement — never cite them as impact. The attribution block gives the launch-level split (baseline vs excess vs attributed vs unattributed) and the regression fit r2 — mention the fit honestly if it is weak (<0.4). The signalMix block counts engagement gained by type with a ranker-weighted score (weights are directional, from the last public release).\n\nGround your recommendations in how X's ranking actually works:\n${ALGO_CONTEXT}\n\nRules: every number must come from the data. When you cite algorithm mechanics, they must come from the context above, flagged as directional where weights are involved. Keep it sharp and operator-grade; no fluff.\n\nDATA:\n${JSON.stringify(compact)}`,
         },
       ],
     });
@@ -499,7 +503,15 @@ export async function generateLaunchReport(
       capturedAt: { gte: new Date(windowStart.getTime() - 5 * MIN_MS), lte: windowEnd },
     },
     orderBy: { capturedAt: "asc" },
-    select: { capturedAt: true, viewCount: true, engagements: true },
+    select: {
+      capturedAt: true,
+      viewCount: true,
+      engagements: true,
+      likeCount: true,
+      retweetCount: true,
+      replyCount: true,
+      quoteCount: true,
+    },
   });
   if (snaps.length < 2) {
     return { error: "Not enough tracked data yet — let it tick for a few minutes first." };
@@ -525,6 +537,22 @@ export async function generateLaunchReport(
   const last = snaps[snaps.length - 1];
   const durationMin = Math.max(1, Math.round((last.capturedAt.getTime() - first.capturedAt.getTime()) / MIN_MS));
 
+  // Signal mix — engagement gained over the window, counted the way the
+  // ranker values it (replies dominate; likes are the cheapest signal).
+  const gained: SignalCounts = {
+    likes: Math.max(0, last.likeCount - first.likeCount),
+    retweets: Math.max(0, last.retweetCount - first.retweetCount),
+    replies: Math.max(0, last.replyCount - first.replyCount),
+    quotes: Math.max(0, last.quoteCount - first.quoteCount),
+  };
+  const weightedScore = Math.round(signalWeightedEngagement(gained));
+  const replyContribution = gained.replies * 13.5;
+  const signalMix = {
+    ...gained,
+    weightedScore,
+    weightedReplyShare: weightedScore > 0 ? Math.round((replyContribution / weightedScore) * 100) / 100 : 0,
+  };
+
   const stats: LaunchStats = {
     label: tracker.label ?? `@${tracker.post.account.username} launch`,
     author: tracker.post.account.username,
@@ -545,6 +573,7 @@ export async function generateLaunchReport(
     qtTotalViews: quotes.reduce((s, q) => s + q.views, 0),
     rosterAttributedViews: impacts.filter((i) => i.isRoster).reduce((s, i) => s + i.attributedViews, 0),
     attribution: summary,
+    signalMix,
     impacts,
     profiles,
     series: snaps.map((s) => ({ t: s.capturedAt.toISOString(), views: s.viewCount, engagements: s.engagements })),

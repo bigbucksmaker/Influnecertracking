@@ -97,6 +97,43 @@ export function LaunchReportView({ report }: { report: ReportData }) {
         </Card>
       )}
 
+      {/* Signal mix — engagement counted the way the ranker values it */}
+      {stats.signalMix && stats.signalMix.weightedScore > 0 && (
+        <Card className="p-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 text-xs font-medium text-subtle">
+            <span>
+              Engagement signal mix · counted at the ranker&apos;s relativities{" "}
+              <span className="text-subtle/70">(directional — last public weights: reply 13.5 · RT/QT 1 · like 0.5)</span>
+            </span>
+            <span>
+              replies = <b className="text-pos">{Math.round(stats.signalMix.weightedReplyShare * 100)}%</b> of weighted signal
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-4">
+            {(
+              [
+                { label: "Replies", n: stats.signalMix.replies, w: 13.5, tone: "text-pos" },
+                { label: "Quotes", n: stats.signalMix.quotes, w: 1, tone: "text-money-400" },
+                { label: "Reposts", n: stats.signalMix.retweets, w: 1, tone: "text-fg" },
+                { label: "Likes", n: stats.signalMix.likes, w: 0.5, tone: "text-subtle" },
+              ] as const
+            ).map((s) => (
+              <div key={s.label} className="rounded-lg border border-line-soft bg-surface-2/50 px-3 py-2">
+                <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-subtle">
+                  {s.label} <span className="text-subtle/60">×{s.w}</span>
+                </div>
+                <div className={`mt-0.5 font-mono text-lg font-medium tabular-nums ${s.tone}`}>
+                  {formatNumber(s.n)}
+                </div>
+                <div className="text-[10.5px] text-subtle">
+                  → {formatNumber(Math.round(s.n * s.w))} weighted
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Narrative */}
       {narrative ? (
         <div className="grid gap-4 lg:grid-cols-2">
