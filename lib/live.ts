@@ -354,11 +354,29 @@ async function discoverQuotes(tracker: LiveTracker, accountId: string): Promise<
   await recordCost(page.cost, { accountId, purpose: "live_quotes", durationMs: Date.now() - start });
 
   const authors = [...new Set(page.data.map((r) => (r.authorUsername ?? "").toLowerCase()).filter(Boolean))];
-  const roster = await prisma.account.findMany({
-    where: { username: { in: authors } },
-    select: { username: true },
-  });
-  const rosterSet = new Set(roster.map((a) => a.username));
+
+  // Roster matching: for campaign-linked trackers, "roster" means the
+  // CAMPAIGN's booked creators (its linked shortlists) — the QT feed then
+  // answers "did the creators we booked deliver?". Fallback: the watchlist.
+  let rosterSet = new Set<string>();
+  if (tracker.campaignId) {
+    try {
+      const members = await prisma.shortlistItem.findMany({
+        where: { shortlist: { campaignId: tracker.campaignId } },
+        select: { account: { select: { username: true } } },
+      });
+      rosterSet = new Set(members.map((m) => m.account.username));
+    } catch {
+      /* fall through to watchlist matching */
+    }
+  }
+  if (rosterSet.size === 0) {
+    const roster = await prisma.account.findMany({
+      where: { username: { in: authors } },
+      select: { username: true },
+    });
+    rosterSet = new Set(roster.map((a) => a.username));
+  }
 
   const capturedAt = new Date();
   const seenIds = new Set<string>();
@@ -535,8 +553,9 @@ function toPoint(s: {
   };
 }
 
-export async function listTrackers(): Promise<LiveTrackerSummary[]> {
+export async function listTrackers(campaignId?: string): Promise<LiveTrackerSummary[]> {
   const trackers = await prisma.liveTracker.findMany({
+    where: campaignId ? { campaignId } : {},
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     include: trackerInclude,
   });

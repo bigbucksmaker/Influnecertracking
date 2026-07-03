@@ -3,18 +3,27 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { clsx } from "clsx";
 import type { CampaignDetail as Detail, PlacementDetail } from "@/lib/placements";
+import type { ShortlistView } from "@/lib/shortlists";
+import type { LiveTrackerSummary } from "@/lib/live";
 import { Card, StatCard, Badge, Avatar } from "./ui";
 import { formatNumber, formatRatio, formatUsd, relativeTime } from "@/lib/format";
 
 const TYPES = ["post", "quote", "thread", "retweet"] as const;
+const CONTROL =
+  "rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-subtle focus:border-accent focus:outline-none";
 
 export function CampaignDetail({
   campaign,
   underdeliverThreshold,
+  rosterShortlists = [],
+  trackers = [],
 }: {
   campaign: Detail;
   underdeliverThreshold: number;
+  rosterShortlists?: ShortlistView[];
+  trackers?: LiveTrackerSummary[];
 }) {
   const router = useRouter();
   const [input, setInput] = useState("");
@@ -186,6 +195,12 @@ export function CampaignDetail({
         />
       </div>
 
+      {/* The launch workflow: roster → launch tweet → live tracking */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <CampaignRoster campaign={campaign} shortlists={rosterShortlists} />
+        <CampaignLaunch campaign={campaign} trackers={trackers} />
+      </div>
+
       {/* Add placement */}
       <Card className="p-5">
         <h2 className="text-sm font-semibold text-fg">Attach a commissioned post</h2>
@@ -320,6 +335,225 @@ export function CampaignDetail({
         </table>
       </div>
     </div>
+  );
+}
+
+/** Campaign roster — the creators booked for THIS campaign (its linked shortlists). */
+function CampaignRoster({ campaign, shortlists }: { campaign: Detail; shortlists: ShortlistView[] }) {
+  const router = useRouter();
+  const [handles, setHandles] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const items = shortlists.flatMap((s) => s.items);
+  const totalCost = shortlists.reduce((s, l) => s + l.totals.totalCost, 0);
+  const expectedViews = shortlists.reduce((s, l) => s + l.totals.expectedViews, 0);
+
+  async function addCreators() {
+    const parsed = handles
+      .split(/[\s,]+/)
+      .map((h) => h.trim().replace(/^@/, "").toLowerCase())
+      .filter(Boolean);
+    if (parsed.length === 0) {
+      setErr("Enter one or more @handles.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      if (shortlists.length === 0) {
+        const r = await fetch("/api/shortlists", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: `${campaign.name} — roster`,
+            campaignId: campaign.id,
+            items: parsed.map((h) => ({ account: h })),
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error ?? "Could not create the roster");
+        if (d.failed?.length) setErr(`Not on the watchlist: ${d.failed.join(", ")} — add them there first.`);
+      } else {
+        const target = shortlists[0];
+        const failed: string[] = [];
+        for (const h of parsed) {
+          const r = await fetch(`/api/shortlists/${target.id}/items`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ account: h }),
+          });
+          if (!r.ok) failed.push(h);
+        }
+        if (failed.length) setErr(`Not on the watchlist: ${failed.join(", ")} — add them there first.`);
+      }
+      setHandles("");
+      router.refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not add creators");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeItem(itemId: string) {
+    setBusy(true);
+    try {
+      await fetch(`/api/shortlists/items/${itemId}`, { method: "DELETE" });
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-fg">
+          Roster{" "}
+          <span className="font-normal text-subtle">
+            · {items.length} creator{items.length === 1 ? "" : "s"}
+            {totalCost > 0 && <> · {formatUsd(totalCost)} · ~{formatNumber(expectedViews)} exp. views</>}
+          </span>
+        </h2>
+        <Link href="/shortlists" className="text-xs text-accent-400 hover:underline">
+          Manage in Shortlists →
+        </Link>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <input
+          value={handles}
+          onChange={(e) => setHandles(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addCreators()}
+          placeholder="@handle, @handle…"
+          className={clsx(CONTROL, "min-w-[220px] flex-1")}
+        />
+        <button
+          onClick={addCreators}
+          disabled={busy}
+          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:opacity-60"
+        >
+          {busy ? "Adding…" : "Add to roster"}
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-subtle">
+        Roster creators are highlighted in the launch tracker&apos;s QT feed — you see instantly who delivered.
+        Creators must already be on the watchlist.
+      </p>
+      {err && <p className="mt-1.5 text-sm text-neg">{err}</p>}
+
+      {items.length > 0 && (
+        <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto scroll-thin">
+          {items.map((it) => (
+            <li key={it.itemId} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-surface-2">
+              <Avatar src={it.profilePicture} alt={it.username} size={24} />
+              <Link href={`/influencer/${it.username}`} className="min-w-0 flex-1 truncate text-sm font-medium text-fg hover:underline">
+                {it.displayName ?? it.username}
+                <span className="ml-1.5 font-normal text-xs text-subtle">@{it.username}</span>
+              </Link>
+              {it.basisRate != null && (
+                <span className="font-mono text-xs tabular-nums text-muted">${it.basisRate}</span>
+              )}
+              {it.cpm != null && (
+                <span className="font-mono text-xs tabular-nums text-money-400">${it.cpm} CPM</span>
+              )}
+              <button onClick={() => removeItem(it.itemId)} disabled={busy} className="text-xs text-subtle hover:text-neg">
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** Launch-day tracking — link the launch tweet, get the live panel, campaign-scoped. */
+function CampaignLaunch({ campaign, trackers }: { campaign: Detail; trackers: LiveTrackerSummary[] }) {
+  const router = useRouter();
+  const [tweet, setTweet] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function goLive() {
+    if (!tweet.trim()) {
+      setErr("Paste the launch post's URL or id.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/live", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tweet, label: campaign.name, campaignId: campaign.id, intervalSec: 5 }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? "Could not start the tracker");
+      router.push(`/live/${d.trackerId}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not start the tracker");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="relative overflow-hidden p-5">
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-neg/50 via-neg/15 to-transparent" />
+      <h2 className="text-sm font-semibold text-fg">Launch tracking</h2>
+      <p className="mt-1 text-xs text-subtle">
+        On launch day, paste the launch post the moment it ships — 5s realtime panel, QT feed with this
+        campaign&apos;s roster highlighted, and on-demand recap reports with per-creator attribution.
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <input
+          value={tweet}
+          onChange={(e) => setTweet(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && goLive()}
+          placeholder="https://x.com/founder/status/123…"
+          className={clsx(CONTROL, "min-w-[220px] flex-1")}
+        />
+        <button
+          onClick={goLive}
+          disabled={busy}
+          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-600 disabled:opacity-60"
+        >
+          {busy ? "Starting…" : "▶ Go live"}
+        </button>
+      </div>
+      {err && <p className="mt-1.5 text-sm text-neg">{err}</p>}
+
+      {trackers.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {trackers.map((t) => {
+            const live = t.status === "live";
+            return (
+              <li key={t.id}>
+                <Link href={`/live/${t.id}`} className="flex items-center gap-2.5 rounded-lg border border-line-soft px-3 py-2 transition-colors hover:bg-surface-2">
+                  <span
+                    className={clsx(
+                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em]",
+                      live ? "bg-neg-soft text-neg" : "bg-surface-2 text-subtle",
+                    )}
+                  >
+                    <span className={clsx("h-1 w-1 rounded-full", live ? "animate-pulse-soft bg-neg" : "bg-subtle")} />
+                    {live ? "Live" : "Done"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-fg">
+                    @{t.post.author.username} · {relativeTime(t.startedAt)}
+                  </span>
+                  <span className="font-mono text-xs tabular-nums text-muted">
+                    {formatNumber(t.latest?.views ?? null)} views
+                  </span>
+                  <span className="font-mono text-xs tabular-nums text-money-400">{t.rosterQuoteCount} roster QTs</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }
 
