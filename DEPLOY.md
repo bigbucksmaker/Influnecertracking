@@ -28,6 +28,14 @@ DATABASE_URL="postgresql://…(direct or pooled)…" npm run db:push
 DATABASE_URL="postgresql://…"                    npm run db:seed
 ```
 
+> **Schema changes on an existing deployment:** whenever a PR touches
+> `prisma/schema.prisma`, run `npm run db:push` against the prod `DATABASE_URL`
+> **before (or immediately with) the merge** — `db push` is additive-safe for new
+> columns/tables and does not touch data. Recent example: `Account.ratesUpdatedAt`
+> + the `RateEvent` table (the value-layer audit trail). RateEvent writes are
+> best-effort in code, but Account reads fail until `ratesUpdatedAt` exists, so
+> push the schema first.
+
 Import the roster into Postgres (creates rows only — cheap):
 
 ```bash

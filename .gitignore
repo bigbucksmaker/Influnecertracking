@@ -22,6 +22,9 @@ next-env.d.ts
 *.db
 *.db-journal
 
+# typescript build info (build artifact — never commit)
+tsconfig.tsbuildinfo
+
 # misc
 .DS_Store
 *.pem

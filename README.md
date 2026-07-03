@@ -1,23 +1,50 @@
 # Influencer Tracking — Atomik Growth
 
-Internal tool to vet and monitor X (Twitter) influencers for client campaigns. Tracks a **shared**
-team watchlist of X accounts, builds its own time-series history from periodic snapshots, and ranks
-accounts by a composite **Performance Score**.
+Internal tool to vet, **price**, and monitor X (Twitter) influencers for client campaigns. Tracks a
+**shared** team watchlist, builds its own time-series history from periodic snapshots, ranks
+accounts by a composite **Performance Score**, and — now that roster rates are maintained — computes
+a full **value layer**: implied CPM, Value Score (performance per dollar), price-vs-peers
+positioning, campaign spend economics, and a budget planner.
 
-Built with Next.js (App Router) + TypeScript + Tailwind + Recharts, Prisma + SQLite (dev) / Postgres
-(prod), Auth.js (Google OAuth, restricted to `@atomikgrowth.com`), and Vercel Cron for scheduled polling.
+Built with Next.js 15 (App Router) + TypeScript + Tailwind + Recharts, Prisma + Postgres (Neon),
+Auth.js (Google OAuth, restricted to `@atomikgrowth.com`), Vercel Cron for scheduled polling, and
+Anthropic Claude for AI niches + the in-app assistant.
 
-Data source: [twitterapi.io](https://docs.twitterapi.io) (single `x-api-key` header), wrapped behind a
-swappable `DataProvider` interface.
+- **Live:** https://www.virality.studio
+- **Deep documentation:** [OVERVIEW.md](OVERVIEW.md) · **Deploy runbook:** [DEPLOY.md](DEPLOY.md)
 
 ---
 
 ## Why snapshots?
 
-twitterapi.io only returns the **current** metrics for a post — there's no historical time-series
-endpoint. So this app builds its own history: on a schedule it fetches each account's profile + recent
-posts and stores a **timestamped snapshot** of every metric. All trends are computed from stored
-snapshots.
+twitterapi.io only returns the **current** metrics for a post — there is no historical time-series
+endpoint. So the app builds its own history: on a schedule it fetches each account's profile +
+recent posts and stores a **timestamped snapshot** of every metric. All trends are computed from
+stored snapshots.
+
+---
+
+## The two scores
+
+**Performance Score (0–100, violet)** — trailing 7 days, price-free by design:
+- **Reach** = MEDIAN views/post (robust to viral spikes; p25 shown as the floor).
+- **Engagement rate** = Σ engagements ÷ Σ impressions.
+- Each normalized across the tracked set (percentile default, z-score optional), combined by the
+  configurable weights (default 50/50). Replies and retweets excluded. Confidence flags (thin or
+  stale data) travel with every row.
+
+**Value Score (0–100, teal)** — what a dollar buys, computed in `lib/value.ts`:
+- **Implied CPM** = rate ÷ median organic views × 1,000 (per format: QT, post, thread).
+- **Basis** = the QT rate, falling back to the post rate (`valueBasis` says which).
+- **Value Score** = percentile blend of views-per-dollar and engagements-per-dollar across all
+  priced accounts.
+- **Price position** = implied CPM vs niche-peer median (≥3 peers sharing a tag, else the whole
+  priced set): ≤0.70× **underpriced** · ≥1.40× **overpriced** · else fair.
+- Everything is an estimate from organic medians and inherits the confidence flags. The Performance
+  Score and campaign delivery ratios stay price-free — the value layer sits alongside, never inside.
+
+Every rate edit stamps `ratesUpdatedAt` and writes a **RateEvent** audit row (old → new, who, when),
+so negotiation history is queryable and stale rates are flagged in the UI after 90 days.
 
 ---
 
@@ -25,70 +52,71 @@ snapshots.
 
 | Table | Purpose |
 |---|---|
-| `Account` | The watchlist row (handle, profile cache, status, polling tier). |
+| `Account` | Watchlist row: handle, profile cache, status, polling tier, **campaign rates** + `ratesUpdatedAt`. |
 | `AccountSnapshot` | Profile metrics over time (followers / following / post count). |
-| `Post` | One row per tweet (text, posted-at, **freeze state**). |
+| `Post` | One row per tweet (text, posted-at, freeze state, `commissioned` flag). |
 | `PostSnapshot` | Per-post metrics over time (views, likes, reposts, replies, quotes, bookmarks, engagements). |
-| `ApiCallLog` | Every provider call: endpoint, items, **credits charged**, timestamp — powers cost tracking. |
-| `AppSettings` | Single-row config: score weights, plan cap, polling cadences, freeze window. |
-| `Tag` / `AccountTag` | Niche tagging (many-to-many). |
+| `Campaign` / `Placement` | Client campaigns and commissioned posts; delivery measured vs each creator's organic baseline (price-free), plus spend / actual-CPM economics. |
+| `Shortlist` / `ShortlistItem` | Saved candidate slates with per-creator economics and slate totals. |
+| `RateEvent` | Audit trail of every rate change (negotiation history). |
+| `ApiCallLog` | Every provider call with credits charged — powers cost tracking. |
+| `AppSettings` | Single-row config: weights, plan cap, polling cadences, freeze windows, thresholds. |
+| `Tag` / `AccountTag` | Niche tagging (manual + AI). |
 
-The schema avoids enums / scalar-lists / JSON columns so it runs unchanged on **SQLite and Postgres**.
+---
+
+## The surfaces
+
+- **Dashboard** — best value, top reach, movers, active campaigns (with spend), needs-attention feed,
+  credit budget widget. `⌘K` opens the global command palette from anywhere.
+- **Leaderboard** — presets (Top performance / Best value / Rising / Falling), an Economics column
+  group (rates, est. CPM, Value ring, price position), column toggles, CSV export.
+- **Planner** — give it a budget + format + niche; greedy allocation on views-per-dollar produces a
+  slate with totals (cost, expected views, blended CPM), saveable as a shortlist, exportable as CSV.
+- **Influencer page** — charts (followers, cumulative views, ER, view distribution), a rate card with
+  per-format implied CPM + price positioning + rate freshness, recent posts.
+- **Campaigns** — attach commissioned tweets; delivery vs organic baseline, spend, actual CPM, cost
+  per engagement, underdelivery flags.
+- **Shortlists** — candidate slates that price themselves (rate, CPM, Value per creator; totals row).
+- **Niches** — Claude proposes a taxonomy from stored post text; you approve; it tags everyone. $0 in
+  twitterapi.io credits.
+- **Cost** — credits used, projections vs plan cap, per-endpoint/day/influencer breakdowns.
+- **Ask** — the in-app assistant. Curated tools + read-only SQL; answers "best value under $50 in AI
+  niche", "build me a $3k plan" (planBudget tool); write actions require an explicit Confirm click.
 
 ---
 
 ## Local setup
 
-Requires Node 20+ (installed here via Homebrew: `/opt/homebrew/bin` — add it to your PATH).
+Requires Node 20+.
 
 ```bash
 npm install
-cp .env.example .env.local        # then fill in the blanks (see below)
-npm run db:push                   # create the SQLite schema
+cp .env.example .env.local        # then fill in the blanks
+npm run db:push                   # sync schema to Postgres
 npm run db:seed                   # default settings + starter tags
 npm run dev                       # http://localhost:3000
 ```
+
+> **Try it with no keys:** set `DATA_PROVIDER=mock` and `DEV_AUTH_BYPASS=true`, then add a few
+> handles on the Watchlist page — deterministic fake data makes every chart work.
 
 ### Environment variables (`.env.local`)
 
 | Var | What |
 |---|---|
-| `DATABASE_URL` | `file:./dev.db` locally. Postgres URL in prod. |
+| `DATABASE_URL` | Postgres (Neon) pooled connection string |
+| `DATABASE_URL_RO` | Optional read-only connection for the assistant's SQL tool |
 | `AUTH_SECRET` | `openssl rand -base64 32` |
-| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth client (see below). |
-| `ALLOWED_EMAIL_DOMAIN` | `atomikgrowth.com` — only this domain may sign in. |
-| `DEV_AUTH_BYPASS` | `true` for a local "Dev sign in" button before Google is wired up. Set `false` for real auth. |
-| `TWITTERAPI_IO_KEY` | Your twitterapi.io key (dashboard → API key). |
-| `DATA_PROVIDER` | `twitterapiio` (real) or `mock` (deterministic fake data, no key needed). |
-| `CRON_SECRET` | Bearer token the cron route checks; Vercel injects it automatically on scheduled runs. |
-
-> **Try it with no keys:** set `DATA_PROVIDER=mock` and `DEV_AUTH_BYPASS=true`, then add a few
-> handles on the Watchlist page — the app fills in realistic, stable fake data so every chart works.
-
-### Google OAuth
-
-1. Google Cloud Console → APIs & Services → Credentials → **Create OAuth client ID** (Web application).
-2. Authorized redirect URIs:
-   - `http://localhost:3000/api/auth/callback/google`
-   - `https://YOUR-APP.vercel.app/api/auth/callback/google`
-3. Put the client id/secret in `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
-4. Domain restriction is enforced in `auth.ts` (`signIn` callback) — even a valid Google login is
-   rejected unless the email ends in `@atomikgrowth.com`.
-
----
-
-## Using it
-
-- **Watchlist** — add handles (comma/space/newline separated, `@handles` or profile URLs OK), tag by
-  niche, pause, remove. Adding a handle **backfills the last 7 days** of posts immediately (logged as
-  a one-time credit cost) so its charts have history right away.
-- **Leaderboard** — sortable/filterable table of every metric. Click any column to sort; filter by
-  niche/tier/rising; export the current view to CSV.
-- **Influencer page** — follower / post-view / engagement charts (7d & 30d) + recent posts ranked by
-  performance. Engagement rate is shown two ways: ÷ impressions and ÷ followers.
-- **Cost** — credits used this month, projected month-end, % of cap, per-endpoint / per-day /
-  per-influencer breakdowns, and a plan recommendation.
-- **Settings** — score weights (reach vs engagement), plan cap, polling cadences, freeze window.
+| `AUTH_TRUST_HOST` | `true` |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth client |
+| `ALLOWED_EMAIL_DOMAIN` | `atomikgrowth.com` — only this domain may sign in |
+| `DEV_AUTH_BYPASS` | `true` locally for a dev login button; `false` in prod |
+| `DATA_PROVIDER` | `twitterapiio` (real) or `mock` |
+| `TWITTERAPI_IO_KEY` | twitterapi.io API key |
+| `TWITTERAPI_QPS_MS` | ms between provider requests (Free ≈ 5200 · Pro = 50 · 0 = off) |
+| `CRON_SECRET` | Bearer token the cron route checks |
+| `ANTHROPIC_API_KEY` | Claude key for Niches + the assistant |
 
 ### Polling (locally)
 
@@ -98,50 +126,21 @@ npm run poll -- --force      # poll every active account now
 npm run poll -- --backfill   # backfill any account still missing history
 ```
 
-### Performance Score
+### Cost control (twitterapi.io)
 
-Trailing 7-day window per account:
-
-- **Reach** = average views per post.
-- **Engagement rate** = Σ engagements ÷ Σ impressions (engagements = likes + reposts + replies +
-  quotes + bookmarks).
-
-Each is normalized across the tracked set (percentile by default, or z-score) → combined
-`reachWeight · reach + engagementWeight · engagement` → **0–100**. Default weights 50/50, adjustable
-in Settings. Follower growth is tracked and charted for context but **excluded** from the score.
-
-### Adaptive polling & freezing (controls your bill)
-
-- **Tiers:** accounts that posted within the *active window* (default 48h) poll every few hours;
-  dormant accounts poll once daily.
-- **Freezing:** on each poll only posts newer than the *freeze age* (default 3 days) are re-fetched.
-  Once older, a post gets one final snapshot and is frozen — no more credits spent re-reading it.
-- **Cheap refresh:** in-window posts that scroll off the latest page are refreshed in a single batched
-  `tweets?tweet_ids=` call rather than paginating.
-
-All cadences and windows are Settings, so you can dial cost up or down without code changes.
-
-### Cost model (hardcoded constants)
-
-`$1 = 100,000 credits` · tweet read = 15 cr · user profile = 18 cr · minimum 15 cr/request.
-Plan caps: Starter 3.13M · **Builder 11.29M (default)** · Pro 25.07M · Scale 69.86M.
+`$1 = 100,000 credits` · tweet read = 15 cr · profile = 18 cr · minimum 15 cr/request.
+Adaptive polling keeps the bill down: active accounts poll every few hours, dormant ones daily;
+posts older than the freeze window get one final snapshot and are never re-read (commissioned posts
+get an extended window). All cadences are Settings.
 
 ---
 
-## Deploy to Vercel
+## Deploy
 
-See **[DEPLOY.md](DEPLOY.md)** for the full step-by-step runbook. In short:
-
-1. Push to GitHub, import into Vercel.
-2. Provision Postgres (Neon free tier or Vercel Postgres). Set `DATABASE_URL` (pooled) and run
-   `npm run db:push` + `npm run db:seed` against it.
-3. Set all env vars in Vercel (Production + Preview); set `DEV_AUTH_BYPASS=false`. Add the prod Google
-   redirect URI.
-4. `vercel.json` registers an **hourly** cron hitting `/api/cron/poll`. Adaptive tiering means each run
-   only polls accounts actually due, so hourly is cheap. (Vercel **Hobby** = daily crons only + 60s
-   functions; **Pro** allows the hourly schedule + 300s — recommended for 300 accounts.)
-
----
+Vercel + Neon; hourly cron on `/api/cron/poll`. Full runbook in **[DEPLOY.md](DEPLOY.md)**.
+**Schema changes ship via `npm run db:push` against the prod `DATABASE_URL` — run it before or
+immediately with the deploy** (all recent changes are additive: `Account.ratesUpdatedAt`,
+`RateEvent`).
 
 ## Swapping the data source
 
