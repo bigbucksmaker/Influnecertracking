@@ -1,8 +1,10 @@
 import { prisma } from "./db";
 import { computeLeaderboard } from "./scoring";
 
-// Shortlist views surface reach/engagement/median/consistency ONLY. Campaign
-// rate fields are deliberately never included here.
+// Shortlist views carry performance AND economics. Rates were historically
+// excluded here because they were unreliable; they're maintained now, so a
+// shortlist reads as a slate you can price: per-creator rate + implied CPM,
+// and roll-ups (total cost, expected views, blended CPM) for the whole list.
 export interface ShortlistItemView {
   itemId: string;
   accountId: string;
@@ -18,6 +20,25 @@ export interface ShortlistItemView {
   currentFollowers: number | null;
   direction: string | null;
   lowConfidence: boolean;
+  medianEng: number | null;
+  // Economics (basis = QT rate, falling back to post rate; see lib/value.ts)
+  rateQuoteTweet: number | null;
+  ratePost: number | null;
+  rateThread: number | null;
+  valueBasis: string | null;
+  basisRate: number | null;
+  cpm: number | null; // implied $ per 1K median views at the basis rate
+  valueScore: number | null;
+  pricePosition: string | null;
+}
+
+export interface ShortlistTotals {
+  pricedCount: number; // items with a basis rate
+  unpricedCount: number;
+  totalCost: number; // Σ basis rates
+  expectedViews: number; // Σ median views of priced items
+  expectedEngagements: number; // Σ median engagements of priced items
+  blendedCpm: number | null; // totalCost ÷ expectedViews × 1K
 }
 
 export interface ShortlistView {
@@ -28,6 +49,22 @@ export interface ShortlistView {
   createdBy: string | null;
   createdAt: string;
   items: ShortlistItemView[];
+  totals: ShortlistTotals;
+}
+
+function computeTotals(items: ShortlistItemView[]): ShortlistTotals {
+  const priced = items.filter((it) => it.basisRate != null && it.basisRate > 0);
+  const totalCost = priced.reduce((s, it) => s + (it.basisRate ?? 0), 0);
+  const expectedViews = priced.reduce((s, it) => s + Math.round(it.medianViews ?? 0), 0);
+  const expectedEngagements = priced.reduce((s, it) => s + Math.round(it.medianEng ?? 0), 0);
+  return {
+    pricedCount: priced.length,
+    unpricedCount: items.length - priced.length,
+    totalCost,
+    expectedViews,
+    expectedEngagements,
+    blendedCpm: expectedViews > 0 ? Math.round((totalCost / expectedViews) * 1000 * 100) / 100 : null,
+  };
 }
 
 export async function getShortlists(): Promise<ShortlistView[]> {
@@ -48,14 +85,8 @@ export async function getShortlists(): Promise<ShortlistView[]> {
   ]);
   const byAccount = new Map(board.map((r) => [r.accountId, r]));
 
-  return shortlists.map((s) => ({
-    id: s.id,
-    name: s.name,
-    campaignId: s.campaignId,
-    campaignName: s.campaign?.name ?? null,
-    createdBy: s.createdBy,
-    createdAt: s.createdAt.toISOString(),
-    items: s.items.map((it) => {
+  return shortlists.map((s) => {
+    const items = s.items.map((it) => {
       const r = byAccount.get(it.accountId);
       return {
         itemId: it.id,
@@ -72,9 +103,28 @@ export async function getShortlists(): Promise<ShortlistView[]> {
         currentFollowers: r?.currentFollowers ?? null,
         direction: r?.direction ?? null,
         lowConfidence: r?.lowConfidence ?? false,
-      };
-    }),
-  }));
+        rateQuoteTweet: r?.rateQuoteTweet ?? null,
+        ratePost: r?.ratePost ?? null,
+        rateThread: r?.rateThread ?? null,
+        valueBasis: r?.valueBasis ?? null,
+        basisRate: r?.basisRate ?? null,
+        cpm: r?.valueBasis === "qt" ? (r?.cpmQuote ?? null) : r?.valueBasis === "post" ? (r?.cpmPost ?? null) : null,
+        valueScore: r?.valueScore ?? null,
+        pricePosition: r?.pricePosition ?? null,
+        medianEng: r?.medianEng ?? null,
+      } satisfies ShortlistItemView;
+    });
+    return {
+      id: s.id,
+      name: s.name,
+      campaignId: s.campaignId,
+      campaignName: s.campaign?.name ?? null,
+      createdBy: s.createdBy,
+      createdAt: s.createdAt.toISOString(),
+      items,
+      totals: computeTotals(items),
+    };
+  });
 }
 
 export async function createShortlist(name: string, campaignId?: string | null, createdBy?: string) {

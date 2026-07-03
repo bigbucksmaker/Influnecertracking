@@ -32,11 +32,13 @@ model Account {
   backfilledAt DateTime?
   addedBy      String?
 
-  // Campaign rates (USD), from the roster CSV; editable in-app.
+  // Campaign rates (USD), from the roster CSV; editable in-app. Maintained and
+  // trusted as of 2026-07 — the value layer (lib/value.ts) computes on them.
   rateQuoteTweet Int?
   ratePost       Int?
   rateRetweet    Int?
   rateThread     Int?
+  ratesUpdatedAt DateTime? // last time any rate was set/changed (staleness hint)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -48,6 +50,7 @@ model Account {
   apiCalls       ApiCallLog[]
   placements     Placement[]
   shortlistItems ShortlistItem[]
+  rateEvents     RateEvent[]
 
   @@index([status])
   @@index([pollingTier])
@@ -116,8 +119,9 @@ model Post {
   @@index([commissioned])
 }
 
-/// A client campaign. Groups commissioned Placements. Price is stored on
-/// Placement but is NEVER read into any computed metric.
+/// A client campaign. Groups commissioned Placements. Delivery ratios stay
+/// price-free; placement prices feed the economics read-outs (spend, actual
+/// CPM, cost per engagement) computed alongside them.
 model Campaign {
   id        String    @id @default(cuid())
   name      String
@@ -136,7 +140,7 @@ model Campaign {
 }
 
 /// A saved shortlist of candidate creators, optionally scoped to a campaign.
-/// Columns surfaced are reach/engagement/median/consistency only — never rates.
+/// Surfaces performance AND economics (rates, implied CPM, slate totals).
 model Shortlist {
   id         String   @id @default(cuid())
   name       String
@@ -166,8 +170,9 @@ model ShortlistItem {
   @@index([accountId])
 }
 
-/// A single commissioned post within a campaign. priceUsd is reference-only and
-/// is not used in any calculation (delivery is measured in reach/engagement).
+/// A single commissioned post within a campaign. Delivery is measured in
+/// reach/engagement vs the creator's organic baseline (price-free); priceUsd
+/// additionally powers actual-CPM and spend economics.
 model Placement {
   id         String   @id @default(cuid())
   campaignId String
@@ -185,6 +190,22 @@ model Placement {
   @@index([campaignId])
   @@index([accountId])
   @@index([postId])
+}
+
+/// Audit trail for campaign-rate changes — negotiation history per creator.
+/// Written on every rate edit (in-app PATCH or the import script).
+model RateEvent {
+  id        String   @id @default(cuid())
+  accountId String
+  field     String // rateQuoteTweet | ratePost | rateRetweet | rateThread
+  oldValue  Int?
+  newValue  Int?
+  changedBy String?
+  changedAt DateTime @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, changedAt])
 }
 
 /// Point-in-time metrics for a single tweet (the per-post time series).

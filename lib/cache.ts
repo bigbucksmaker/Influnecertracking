@@ -16,7 +16,8 @@ const OPTS = { revalidate: 120, tags: [CACHE_TAG] };
 // cached function's return SHAPE changes, bump this — otherwise a new build can
 // read a stale, old-shaped entry written by a previous deploy (e.g. a
 // LeaderboardRow missing viewsSparkline → `undefined.filter` at render time).
-const V = "v2";
+// v3: economics fields (value layer) on leaderboard/shortlists/campaigns.
+const V = "v3";
 
 export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard", V], OPTS);
 export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary", V], OPTS);

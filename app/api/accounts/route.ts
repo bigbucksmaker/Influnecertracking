@@ -43,6 +43,8 @@ export async function POST(req: Request) {
     rateRetweet: parseRateInput(body.rateRetweet),
     rateThread: parseRateInput(body.rateThread),
   };
+  // Freshness stamp for the value layer when rates arrive with the add.
+  const hasAnyRate = Object.values(rates).some((v) => v != null);
 
   const created: { id: string; username: string }[] = [];
   const skipped: string[] = [];
@@ -66,6 +68,7 @@ export async function POST(req: Request) {
         addedBy: gate.email,
         status: "active",
         ...rates,
+        ...(hasAnyRate ? { ratesUpdatedAt: new Date() } : {}),
         tags: { create: tagIds.map((id) => ({ tag: { connect: { id } } })) },
       },
     });

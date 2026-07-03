@@ -23,12 +23,33 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     ratePost?: number | null;
     rateRetweet?: number | null;
     rateThread?: number | null;
+    ratesUpdatedAt?: Date;
   } = {};
   if (body.status === "active" || body.status === "paused") data.status = body.status;
+
+  // Rates: apply changes, stamp freshness, and write the negotiation audit trail.
+  const rateChanges: { field: string; oldValue: number | null; newValue: number | null }[] = [];
   for (const key of ["rateQuoteTweet", "ratePost", "rateRetweet", "rateThread"] as const) {
-    if (key in body) data[key] = parseRateInput(body[key]);
+    if (key in body) {
+      const next = parseRateInput(body[key]);
+      data[key] = next;
+      if (next !== account[key]) rateChanges.push({ field: key, oldValue: account[key], newValue: next });
+    }
   }
+  if (rateChanges.length) data.ratesUpdatedAt = new Date();
+
   if (Object.keys(data).length) await prisma.account.update({ where: { id }, data });
+
+  if (rateChanges.length) {
+    // Best-effort: an un-migrated RateEvent table must never block a rate save.
+    try {
+      await prisma.rateEvent.createMany({
+        data: rateChanges.map((c) => ({ ...c, accountId: id, changedBy: gate.email })),
+      });
+    } catch {
+      /* table may not exist yet (pre-`prisma db push`) — the rate change itself is saved */
+    }
+  }
 
   // Replace the full tag set if `tags` is provided.
   if (Array.isArray(body.tags)) {
