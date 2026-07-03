@@ -18,6 +18,7 @@
 //    tracker cannot bleed credits.
 // ---------------------------------------------------------------------------
 
+import { randomBytes } from "node:crypto";
 import { prisma } from "./db";
 import { getProvider } from "./provider";
 import { recordCost, recordError } from "./logging";
@@ -69,6 +70,7 @@ export interface LiveTrackerSummary {
   lastTickAt: string | null;
   intervalSec: number;
   maxDurationMin: number;
+  shareToken: string | null;
   campaignId: string | null;
   campaignName: string | null;
   post: {
@@ -189,6 +191,29 @@ export async function setTrackerInterval(id: string, intervalSec: number): Promi
 
 export async function deleteTracker(id: string): Promise<void> {
   await prisma.liveTracker.delete({ where: { id } }).catch(() => null);
+}
+
+/** Create (or rotate) the public read-only share token for a tracker. */
+export async function enableShare(id: string): Promise<string> {
+  const token = randomBytes(18).toString("base64url"); // 24 URL-safe chars
+  await prisma.liveTracker.update({ where: { id }, data: { shareToken: token } });
+  return token;
+}
+
+/** Revoke the public link. */
+export async function disableShare(id: string): Promise<void> {
+  await prisma.liveTracker.update({ where: { id }, data: { shareToken: null } });
+}
+
+/** Resolve a public share token to a payload. READ-ONLY — never ticks, so a
+ *  public viewer can never trigger a provider call or spend credits. */
+export async function getTrackerPayloadByToken(token: string): Promise<LivePayload | null> {
+  if (!token || token.length < 16 || token.length > 64) return null;
+  const t = await prisma.liveTracker.findUnique({
+    where: { shareToken: token },
+    select: { id: true },
+  });
+  return t ? getTrackerPayload(t.id) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +451,7 @@ function summarize(t: TrackerWithRels, latest: LiveSeriesPoint | null, quoteCoun
     lastTickAt: t.lastTickAt ? t.lastTickAt.toISOString() : null,
     intervalSec: t.intervalSec,
     maxDurationMin: t.maxDurationMin,
+    shareToken: t.shareToken,
     campaignId: t.campaignId,
     campaignName: t.campaign?.name ?? null,
     post: {

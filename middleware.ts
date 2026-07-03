@@ -5,7 +5,10 @@ import { NextResponse } from "next/server";
 // CRON_SECRET), so they're excluded from the matcher below.
 export default auth((req) => {
   const { pathname } = req.nextUrl;
-  const isPublic = pathname === "/login" || pathname.startsWith("/api/auth");
+  const isPublic =
+    pathname === "/login" ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/share/"); // token-gated public views (e.g. live tracker shares)
   if (!req.auth && !isPublic) {
     const url = new URL("/login", req.nextUrl.origin);
     return NextResponse.redirect(url);

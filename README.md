@@ -73,10 +73,11 @@ so negotiation history is queryable and stale rates are flagged in the UI after 
   group (rates, est. CPM, Value ring, price position), column toggles, CSV export.
 - **Planner** — give it a budget + format + niche; greedy allocation on views-per-dollar produces a
   slate with totals (cost, expected views, blended CPM), saveable as a shortlist, exportable as CSV.
-- **Live post tracking** — paste a launch post the moment it ships: minute-by-minute snapshots,
-  views/engagement pace, a velocity chart, and a quote-tweet amplification feed with roster
-  creators highlighted. Server-side rate limiting + a 24h auto-stop keep credits capped; a
-  per-minute cron covers closed tabs.
+- **Live post tracking** — paste a launch post the moment it ships: 30s heartbeat (pulse chart of
+  views/min), pace, and a quote-tweet amplification feed with roster creators highlighted.
+  Server-side rate limiting + a 24h auto-stop keep credits capped; a per-minute cron covers closed
+  tabs. Each tracker can mint a **public read-only share link** (no login, revocable, can't spend
+  credits) for clients on launch day.
 - **Influencer page** — charts (followers, median views per day, ER, view distribution), a rate card
   with per-format implied CPM + price positioning + rate freshness, recent posts.
 - **Campaigns** — attach commissioned tweets; delivery vs organic baseline, spend, actual CPM, cost
