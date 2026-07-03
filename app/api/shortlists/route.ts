@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/api";
-import { getShortlists, createShortlist } from "@/lib/shortlists";
+import { getShortlists, createShortlist, addShortlistItem } from "@/lib/shortlists";
 import { revalidateTag } from "next/cache";
 import { CACHE_TAG } from "@/lib/cache";
 
@@ -11,6 +11,16 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   name: z.string().trim().min(1).max(120),
   campaignId: z.string().nullable().optional(),
+  // Optional bulk seed — used by the budget planner's "save as shortlist".
+  items: z
+    .array(
+      z.object({
+        account: z.string().trim().min(1),
+        note: z.string().trim().max(300).nullable().optional(),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
 
 export async function GET() {
@@ -28,6 +38,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid shortlist" }, { status: 400 });
   }
   const shortlist = await createShortlist(parsed.data.name, parsed.data.campaignId, gate.email);
+  const failed: string[] = [];
+  for (const item of parsed.data.items ?? []) {
+    const res = await addShortlistItem(shortlist.id, item.account, item.note ?? null);
+    if (!res.ok) failed.push(item.account);
+  }
   revalidateTag(CACHE_TAG);
-  return NextResponse.json({ shortlist });
+  return NextResponse.json({ shortlist, added: (parsed.data.items?.length ?? 0) - failed.length, failed });
 }

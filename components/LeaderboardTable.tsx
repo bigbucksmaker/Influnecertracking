@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { clsx } from "clsx";
 import type { LeaderboardRow } from "@/lib/scoring";
-import { Avatar, Badge, Sparkline } from "./ui";
+import { Avatar, Badge, Sparkline, ScoreRing } from "./ui";
 import { RatesEditor, type Rates } from "./RatesEditor";
 import { AddToShortlist } from "./AddToShortlist";
 import { formatNumber, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
@@ -149,12 +149,61 @@ const COLUMNS: Column[] = [
   {
     key: "qtRate",
     label: "QT Rate",
-    group: "Rates",
+    group: "Economics",
+    numeric: true,
+    title: "Quote-tweet campaign rate (USD). Feeds the value layer; never the Performance Score.",
+    sortVal: (r) => r.rateQuoteTweet,
+    render: (r) => (r.rateQuoteTweet != null ? `$${r.rateQuoteTweet}` : <span className="text-subtle">—</span>),
+  },
+  {
+    key: "postRate",
+    label: "Post Rate",
+    group: "Economics",
     numeric: true,
     defaultHidden: true,
-    title: "Quote-tweet campaign rate (USD) — reference only, never used in scoring",
-    sortVal: (r) => r.rateQuoteTweet,
-    render: (r) => (r.rateQuoteTweet != null ? `$${r.rateQuoteTweet}` : "—"),
+    title: "Post campaign rate (USD)",
+    sortVal: (r) => r.ratePost,
+    render: (r) => (r.ratePost != null ? `$${r.ratePost}` : <span className="text-subtle">—</span>),
+  },
+  {
+    key: "cpm",
+    label: "Est. CPM",
+    group: "Economics",
+    numeric: true,
+    title: "Implied $ per 1K views: basis rate ÷ median organic views × 1,000. Arrow = vs niche peers.",
+    sortVal: (r) => basisCpm(r),
+    render: (r) => <CpmCell r={r} />,
+  },
+  {
+    key: "value",
+    label: "Value",
+    group: "Economics",
+    numeric: true,
+    title: "Value Score (0–100): percentile blend of views/$ and engagement/$ across priced creators",
+    sortVal: (r) => r.valueScore,
+    render: (r) =>
+      r.valueScore == null ? (
+        <span className="text-subtle">—</span>
+      ) : (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          <ScoreRing
+            score={r.valueScore}
+            size={30}
+            kind="value"
+            dim={r.lowConfidence}
+            title={`Value rank #${r.valueRank}${r.valueBasis === "post" ? " (post-rate basis)" : ""}`}
+          />
+        </span>
+      ),
+  },
+  {
+    key: "pricePos",
+    label: "Pricing",
+    group: "Economics",
+    defaultHidden: true,
+    title: "Implied CPM vs niche peers: ≤0.70× underpriced · ≥1.40× overpriced",
+    sortVal: (r) => r.priceVsPeersPct,
+    render: (r) => <PricePosition r={r} />,
   },
   {
     key: "tier",
@@ -178,10 +227,23 @@ interface InitialFilters {
   rising?: boolean;
   q?: string;
   tag?: string;
+  preset?: string;
 }
 
 const CONTROL =
   "rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-subtle focus:border-accent focus:outline-none";
+
+/** The CPM the value layer computed on (QT, falling back to post). */
+function basisCpm(r: LeaderboardRow): number | null {
+  return r.valueBasis === "qt" ? r.cpmQuote : r.valueBasis === "post" ? r.cpmPost : null;
+}
+
+const PRESETS: { key: string; label: string; money?: boolean }[] = [
+  { key: "performance", label: "Top performance" },
+  { key: "value", label: "Best value", money: true },
+  { key: "rising", label: "Rising" },
+  { key: "falling", label: "Falling" },
+];
 
 export function LeaderboardTable({
   rows: initialRows,
@@ -192,20 +254,45 @@ export function LeaderboardTable({
   allTags: string[];
   initialFilters?: InitialFilters;
 }) {
+  const initialPreset = initialFilters?.preset || "performance";
   const [rows, setRows] = useState(initialRows);
   useEffect(() => setRows(initialRows), [initialRows]);
   const [editing, setEditing] = useState<LeaderboardRow | null>(null);
-  const [sortKey, setSortKey] = useState("score");
+  const [preset, setPreset] = useState(initialPreset);
+  const [sortKey, setSortKey] = useState(initialPreset === "value" ? "value" : "score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [q, setQ] = useState(initialFilters?.q ?? "");
   const [tag, setTag] = useState(initialFilters?.tag ?? "");
   const [tier, setTier] = useState(initialFilters?.tier ?? "");
-  const [direction, setDirection] = useState(initialFilters?.direction ?? "");
+  const [direction, setDirection] = useState(
+    initialFilters?.direction || (initialPreset === "rising" ? "rising" : initialPreset === "falling" ? "falling" : ""),
+  );
   const [risingOnly, setRisingOnly] = useState(initialFilters?.rising ?? false);
+  const [pricedOnly, setPricedOnly] = useState(initialPreset === "value");
   const [hidden, setHidden] = useState<Set<string>>(
     () => new Set(COLUMNS.filter((c) => c.defaultHidden).map((c) => c.key)),
   );
   const [showCols, setShowCols] = useState(false);
+
+  function applyPreset(key: string) {
+    setPreset(key);
+    if (key === "value") {
+      setSortKey("value");
+      setSortDir("desc");
+      setPricedOnly(true);
+      setDirection("");
+    } else if (key === "rising" || key === "falling") {
+      setSortKey("wow");
+      setSortDir(key === "rising" ? "desc" : "asc");
+      setDirection(key);
+      setPricedOnly(false);
+    } else {
+      setSortKey("score");
+      setSortDir("desc");
+      setDirection("");
+      setPricedOnly(false);
+    }
+  }
 
   const visibleColumns = useMemo(() => COLUMNS.filter((c) => !hidden.has(c.key)), [hidden]);
   const groupStarts = useMemo(() => {
@@ -236,20 +323,23 @@ export function LeaderboardTable({
       if (tier && r.pollingTier !== tier) return false;
       if (direction && r.direction !== direction) return false;
       if (risingOnly && !r.rising) return false;
+      if (pricedOnly && r.basisRate == null) return false;
       return true;
     });
     const col = COLUMNS.find((c) => c.key === sortKey) ?? COLUMNS[1];
     out = [...out].sort((a, b) => cmp(col.sortVal(a), col.sortVal(b), sortDir));
     return out;
-  }, [rows, q, tag, tier, direction, risingOnly, sortKey, sortDir]);
+  }, [rows, q, tag, tier, direction, risingOnly, pricedOnly, sortKey, sortDir]);
 
-  const anyFilter = q || tag || tier || direction || risingOnly;
+  const anyFilter = q || tag || tier || direction || risingOnly || pricedOnly;
   function resetFilters() {
     setQ("");
     setTag("");
     setTier("");
     setDirection("");
     setRisingOnly(false);
+    setPricedOnly(false);
+    setPreset("performance");
   }
 
   function toggleSort(key: string) {
@@ -280,6 +370,33 @@ export function LeaderboardTable({
 
   return (
     <div>
+      {/* Presets */}
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {PRESETS.map((p) => {
+          const active = preset === p.key;
+          return (
+            <button
+              key={p.key}
+              onClick={() => applyPreset(p.key)}
+              className={clsx(
+                "rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-all",
+                active
+                  ? p.money
+                    ? "border-money/50 bg-money-soft text-money-400 shadow-glow-money"
+                    : "border-accent/50 bg-accent-soft text-accent-400 shadow-glow-accent"
+                  : "border-line bg-surface text-muted hover:border-line hover:text-fg",
+              )}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+        <label className="ml-2 flex items-center gap-1.5 text-sm text-muted">
+          <input type="checkbox" checked={pricedOnly} onChange={(e) => setPricedOnly(e.target.checked)} className="accent-accent" />
+          Priced only
+        </label>
+      </div>
+
       {/* Toolbar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search handle or name…" className={clsx(CONTROL, "w-56")} />
@@ -475,6 +592,38 @@ function Signed({ pct }: { pct: number | null }) {
   return <span className={pct > 0 ? "text-pos" : pct < 0 ? "text-neg" : "text-subtle"}>{formatSignedPct(pct)}</span>;
 }
 
+function CpmCell({ r }: { r: LeaderboardRow }) {
+  const cpm = basisCpm(r);
+  if (cpm == null) return <span className="text-subtle">—</span>;
+  const arrow =
+    r.pricePosition === "underpriced" ? (
+      <span className="text-money-400" title={`${Math.abs(Math.round((r.priceVsPeersPct ?? 0) * 100))}% cheaper than ${r.peerGroup === "niche" ? "niche peers" : "the tracked set"}`}>
+        ↓
+      </span>
+    ) : r.pricePosition === "overpriced" ? (
+      <span className="text-neg" title={`${Math.round((r.priceVsPeersPct ?? 0) * 100)}% dearer than ${r.peerGroup === "niche" ? "niche peers" : "the tracked set"}`}>
+        ↑
+      </span>
+    ) : null;
+  return (
+    <span className={clsx("inline-flex items-center justify-end gap-1", r.valueBasis === "post" && "opacity-80")}>
+      {arrow}
+      <span title={r.valueBasis === "post" ? "Post-rate basis (no QT rate set)" : "QT-rate basis"}>${cpm}</span>
+    </span>
+  );
+}
+
+function PricePosition({ r }: { r: LeaderboardRow }) {
+  if (r.pricePosition == null) return <span className="text-subtle">—</span>;
+  const pct = r.priceVsPeersPct != null ? `${r.priceVsPeersPct > 0 ? "+" : ""}${Math.round(r.priceVsPeersPct * 100)}%` : "";
+  const title = `Implied CPM vs ${r.peerGroup === "niche" ? "niche peers" : "all priced creators"} (${r.peerCount ?? 0})`;
+  if (r.pricePosition === "underpriced")
+    return <span title={title}><Badge color="teal">under {pct}</Badge></span>;
+  if (r.pricePosition === "overpriced")
+    return <span title={title}><Badge color="red">over {pct}</Badge></span>;
+  return <span title={title}><Badge color="slate">fair {pct}</Badge></span>;
+}
+
 function Steadiness({ c }: { c: number | null }) {
   if (c == null) return <span className="text-subtle">—</span>;
   if (c < 0.5) return <span title={`IQR/median = ${c.toFixed(2)}`}><Badge color="green">steady</Badge></span>;
@@ -495,8 +644,9 @@ function downloadCsv(rows: LeaderboardRow[]) {
   const headers = [
     "rank", "username", "displayName", "performanceScore", "lowConfidence", "followers",
     "rateQuoteTweet", "ratePost", "rateRetweet", "rateThread",
+    "impliedCpm", "valueBasis", "valueScore", "valueRank", "pricePosition", "priceVsPeersPct", "costPerKEng",
     "followerGrowth7d", "followerGrowth7dPct", "followerGrowth30d",
-    "medianViews", "p25Views", "avgViews", "consistency", "erImpressions", "erFollowers",
+    "medianViews", "p25Views", "avgViews", "medianEngagements", "consistency", "erImpressions", "erFollowers",
     "postsInWindow", "wowViewsPct", "direction", "tags", "pollingTier", "lastPolledAt",
   ];
   const esc = (v: unknown) => {
@@ -509,8 +659,10 @@ function downloadCsv(rows: LeaderboardRow[]) {
       [
         r.rank, r.username, r.displayName ?? "", r.performanceScore, r.lowConfidence, r.currentFollowers ?? "",
         r.rateQuoteTweet ?? "", r.ratePost ?? "", r.rateRetweet ?? "", r.rateThread ?? "",
+        basisCpm(r) ?? "", r.valueBasis ?? "", r.valueScore ?? "", r.valueRank ?? "",
+        r.pricePosition ?? "", r.priceVsPeersPct ?? "", r.costPerKEng ?? "",
         r.followerGrowth7d ?? "", r.followerGrowth7dPct ?? "", r.followerGrowth30d ?? "",
-        Math.round(r.medianViews), Math.round(r.p25Views), Math.round(r.avgViews),
+        Math.round(r.medianViews), Math.round(r.p25Views), Math.round(r.avgViews), Math.round(r.medianEng),
         r.consistency ?? "", r.erImpressions, r.erFollowers,
         r.postsInWindow, r.wowViewsPct ?? "", r.direction, r.tags.join("|"), r.pollingTier, r.lastPolledAt ?? "",
       ].map(esc).join(","),

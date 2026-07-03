@@ -1,9 +1,11 @@
 # Influencer Tracking — Full Overview
 
-Internal tool for **Atomik Growth** to vet and monitor X (Twitter) influencers for client
-campaigns. It maintains a **shared team watchlist**, builds its own historical time-series of every
-account's profile and post metrics, ranks accounts by a composite **Performance Score**, tracks
-API spend against a budget, and auto-categorizes creators into niches with AI.
+Internal tool for **Atomik Growth** to vet, **price**, and monitor X (Twitter) influencers for
+client campaigns. It maintains a **shared team watchlist**, builds its own historical time-series of
+every account's profile and post metrics, ranks accounts by a composite **Performance Score**,
+computes a full **value layer** on top of maintained campaign rates (implied CPM, Value Score,
+price-vs-peers, budget planning, campaign spend economics), tracks API spend against a budget, and
+auto-categorizes creators into niches with AI.
 
 > One shared workspace: everyone on the `@atomikgrowth.com` domain sees the same accounts, the same
 > data, and the same settings. There are no per-user watchlists.
@@ -11,7 +13,7 @@ API spend against a budget, and auto-categorizes creators into niches with AI.
 - **Live:** https://www.virality.studio
 - **Repo:** github.com/bigbucksmaker/Influnecertracking
 - **Stack:** Next.js 15 (App Router) · TypeScript · Tailwind · Recharts · Prisma · Postgres (Neon) ·
-  Auth.js (Google) · Vercel (hosting + Cron) · twitterapi.io (data) · Anthropic Claude (niches)
+  Auth.js (Google) · Vercel (hosting + Cron) · twitterapi.io (data) · Anthropic Claude (niches + assistant)
 
 ---
 
@@ -25,23 +27,28 @@ API spend against a budget, and auto-categorizes creators into niches with AI.
 6. [Backfill on add](#6-backfill-on-add)
 7. [Adaptive polling, freezing & retweet handling](#7-adaptive-polling-freezing--retweet-handling)
 8. [Performance Score & metrics](#8-performance-score--metrics)
-9. [Leaderboard](#9-leaderboard)
-10. [Campaign rates](#10-campaign-rates)
-11. [Influencer detail page](#11-influencer-detail-page)
-12. [Cost tracking & budget](#12-cost-tracking--budget)
-13. [AI niche categorization](#13-ai-niche-categorization)
-14. [Settings](#14-settings)
-15. [Dashboard](#15-dashboard)
-16. [Performance & caching](#16-performance--caching)
-17. [Scheduled polling (Cron)](#17-scheduled-polling-cron)
-18. [The DataProvider abstraction](#18-the-dataprovider-abstraction)
-19. [API routes](#19-api-routes)
-20. [Scripts / CLI](#20-scripts--cli)
-21. [Environment variables](#21-environment-variables)
-22. [Deployment](#22-deployment)
-23. [Project structure](#23-project-structure)
-24. [Operational notes & gotchas](#24-operational-notes--gotchas)
-25. [Out of scope / roadmap](#25-out-of-scope--roadmap)
+9. [The value layer (rates → economics)](#9-the-value-layer-rates--economics)
+10. [Budget planner](#10-budget-planner)
+11. [Leaderboard](#11-leaderboard)
+12. [Influencer detail page](#12-influencer-detail-page)
+13. [Campaigns & placements](#13-campaigns--placements)
+14. [Shortlists](#14-shortlists)
+15. [The Ask assistant](#15-the-ask-assistant)
+16. [Dashboard, alerts & command palette](#16-dashboard-alerts--command-palette)
+17. [Cost tracking & budget](#17-cost-tracking--budget)
+18. [AI niche categorization](#18-ai-niche-categorization)
+19. [Settings](#19-settings)
+20. [UI design language](#20-ui-design-language)
+21. [Performance & caching](#21-performance--caching)
+22. [Scheduled polling (Cron)](#22-scheduled-polling-cron)
+23. [The DataProvider abstraction](#23-the-dataprovider-abstraction)
+24. [API routes](#24-api-routes)
+25. [Scripts / CLI](#25-scripts--cli)
+26. [Environment variables](#26-environment-variables)
+27. [Deployment](#27-deployment)
+28. [Project structure](#28-project-structure)
+29. [Operational notes & gotchas](#29-operational-notes--gotchas)
+30. [Out of scope / roadmap](#30-out-of-scope--roadmap)
 
 ---
 
@@ -59,25 +66,19 @@ There is no "views over time" endpoint. So the app builds its own history:
 Two time series result: one **per account** (profile metrics) and one **per post** (engagement
 metrics), both accumulating with every poll.
 
----
-
 ## 2. Auth & access
 
 - **Google OAuth via Auth.js (NextAuth v5)**, JWT session strategy (no DB adapter needed).
 - Access is **restricted to the `@atomikgrowth.com` domain** — enforced in the `signIn` callback in
-  `auth.ts` (`email.endsWith("@atomikgrowth.com")`). A valid Google login outside the domain is
-  rejected.
+  `auth.ts`. A valid Google login outside the domain is rejected.
 - `middleware.ts` gates every page: unauthenticated requests are redirected to `/login`. API routes
   do their own checks (`requireUser()` for session routes, `CRON_SECRET` for the cron route).
-- **Dev bypass:** set `DEV_AUTH_BYPASS=true` locally to log in as `dev@atomikgrowth.com` without
-  Google (a "Dev sign in" button appears on `/login`). Must be `false` in production.
-- Configurable domain via `ALLOWED_EMAIL_DOMAIN`.
-
----
+- **Dev bypass:** `DEV_AUTH_BYPASS=true` locally logs in as `dev@atomikgrowth.com` without Google.
+  Must be `false` in production. Configurable domain via `ALLOWED_EMAIL_DOMAIN`.
 
 ## 3. Data source & cost model (twitterapi.io)
 
-Auth is a single `x-api-key` header (no OAuth). Endpoints used:
+Auth is a single `x-api-key` header. Endpoints used:
 
 | Purpose | Endpoint |
 |---|---|
@@ -87,30 +88,13 @@ Auth is a single `x-api-key` header (no OAuth). Endpoints used:
 | Cheap metric refresh | `GET /twitter/tweets?tweet_ids=a,b,c` |
 | Account balance | `GET /oapi/my/info` |
 
-**Credit / cost constants** (hardcoded in `lib/cost.ts`):
+**Credit / cost constants** (hardcoded in `lib/cost.ts`): `$1 = 100,000 credits` · tweet read =
+**15 cr** · profile = **18 cr** · **minimum 15 cr/request**. Credits charged per request =
+`max(15, itemsReturned × perItem)`; balance checks are free.
 
-- `$1 = 100,000 credits`
-- Tweet read = **15 credits** ($0.15 / 1k)
-- User profile = **18 credits** ($0.18 / 1k)
-- **Minimum 15 credits per request**, even if it returns nothing
-- Credits charged per request = `max(15, itemsReturned × perItem)`; balance checks are free.
-
-**Plan tiers** (monthly credit caps, incl. tier bonus):
-
-| Plan | Credits / mo | Price | QPS (calls/sec) |
-|---|--:|--:|--:|
-| Free | — | — | 3 |
-| Starter | 3.13M | $29 | 5 |
-| Builder | 11.29M | $99 | 10 |
-| **Pro (current)** | **25.07M** | **$199** | **20** |
-| Scale | 69.86M | $499 | 50 |
-| Business | 224.85M | $1,499 | 500 |
-
-**Rate limiting:** the provider serializes and spaces requests client-side to respect the per-key
-QPS limit (`TWITTERAPI_QPS_MS`, ms between requests). Free tier ≈ `5200`; on the current **Pro**
-plan it's `50` (20 req/s). Set `0` to disable. 429/5xx are retried with backoff.
-
----
+**Plan tiers:** Starter 3.13M/$29 · Builder 11.29M/$99 · **Pro 25.07M/$199 (current)** ·
+Scale 69.86M/$499 · Business 224.85M/$1,499. Two limits apply: monthly **credits** and per-second
+**QPS** (`TWITTERAPI_QPS_MS` spaces requests client-side; Pro = `50`). 429/5xx retried with backoff.
 
 ## 4. Data model
 
@@ -118,377 +102,355 @@ Postgres via Prisma (`prisma/schema.prisma`). Kept portable (no enums / scalar-l
 
 | Table | Purpose |
 |---|---|
-| **Account** | A tracked X account: `username` (unique, lowercased), `xUserId`, cached profile fields (`displayName`, `profilePicture`, `description`, `isBlueVerified`, `xCreatedAt`), `status` (active/paused), `pollingTier` (active/dormant), `lastPostedAt`, `lastPolledAt`, `backfilledAt`, `addedBy`, and **campaign rates** (`rateQuoteTweet`, `ratePost`, `rateRetweet`, `rateThread`). |
-| **AccountSnapshot** | Profile metrics over time: `followers`, `following`, `statusesCount`, `mediaCount`, `favouritesCount`, `capturedAt`, `source`. Unique `(accountId, capturedAt)`. |
-| **Post** | One row per tweet: `id` (tweet id), `text`, `postedAt`, `lang`, `isReply`, `url`, `firstSeenAt`, **freeze state** (`isFrozen`, `frozenAt`), `lastMetricsAt`. Retweets are **not** stored. |
-| **PostSnapshot** | Per-post metrics over time: `viewCount`, `likeCount`, `retweetCount`, `replyCount`, `quoteCount`, `bookmarkCount`, `engagements` (precomputed), `capturedAt`, `source`. Unique `(postId, capturedAt)`. |
-| **ApiCallLog** | Every provider call: `endpoint`, `accountId?`, `purpose`, `itemsReturned`, `creditsCharged`, `estimatedCostUsd`, `ok`, `httpStatus`, `errorMessage`, `durationMs`, `requestedAt`. Powers all cost tracking. |
-| **AppSettings** | Single "singleton" row of tunables (weights, plan cap, cadences, freeze window, normalization, includeReplies) **plus** background-poll job state (`pollRunningAt`, `pollDone`, `pollTotal`, `pollFinishedAt`). |
-| **Tag** / **AccountTag** | Niche/label tags, many-to-many with accounts. Used both for manual niche tags and AI niches. |
+| **Account** | A tracked X account: `username`, cached profile fields, `status`, `pollingTier`, `lastPostedAt/lastPolledAt/backfilledAt`, **campaign rates** (`rateQuoteTweet`, `ratePost`, `rateRetweet`, `rateThread`) + **`ratesUpdatedAt`** (freshness stamp for the value layer). |
+| **RateEvent** | Audit trail of every rate change: `field`, `oldValue → newValue`, `changedBy`, `changedAt`. Written by the in-app rate editor and the import script. Negotiation history per creator. |
+| **AccountSnapshot** | Profile metrics over time. Unique `(accountId, capturedAt)`. |
+| **Post** | One row per tweet: text, `postedAt`, freeze state, **`commissioned`** flag (extended tracking window). Retweets are **not** stored. |
+| **PostSnapshot** | Per-post metrics over time, with precomputed `engagements` (likes+reposts+replies+quotes+bookmarks — defined once in `lib/engagement.ts`). |
+| **Campaign** | A client campaign grouping placements. |
+| **Placement** | One commissioned post: `type`, `priceUsd`, optional linked `postId`. Delivery ratios are price-free; `priceUsd` powers spend / actual-CPM economics. |
+| **Shortlist / ShortlistItem** | Saved candidate slates, optionally scoped to a campaign. |
+| **ApiCallLog** | Every provider call with credits charged — powers all cost tracking. |
+| **AppSettings** | Single-row config (weights, plan cap, cadences, freeze windows, confidence + underdelivery thresholds) plus background-poll job state. |
+| **Tag / AccountTag** | Niche tags (manual + AI), many-to-many. |
 
-`engagements` is defined once in `lib/engagement.ts` as **likes + reposts + replies + quotes +
-bookmarks** and stored on each snapshot so aggregation is cheap.
-
-Deleting an account cascades to its snapshots, posts, and tags.
-
----
+Deleting an account cascades to its snapshots, posts, tags, placements, shortlist items, and rate
+events.
 
 ## 5. Watchlist management
 
-The **Watchlist** page (`/accounts`) is the shared roster.
-
-- **Add / import in bulk** — paste handles, `@mentions`, or profile URLs separated by commas,
-  spaces, or newlines. `lib/handles.ts` parses and validates them (extracts the handle from URLs,
-  strips `@`, lowercases, dedupes, validates `[a-z0-9_]{1,15}`).
-- **Tag by niche** on add, or edit a row's tags anytime.
-- **Set campaign rates** on add (quote-tweet / post / retweet / thread, USD).
-- **Pause / resume** an account (paused accounts aren't polled or ranked).
-- **Backfill now** button per account (re-pull last N days).
-- **Remove** (hard delete + cascade).
-- Table shows avatar, name, tags, current followers, post count, polling tier, backfill status, last
-  poll time.
-
----
+The **Watchlist** page (`/accounts`) is the shared roster: bulk add (handles, `@mentions`, or URLs —
+parsed by `lib/handles.ts`), tag by niche, set rates on add, pause/resume, per-account backfill,
+hard delete. The table shows avatar, tags, followers, post count, tier, backfill status, last poll.
 
 ## 6. Backfill on add
 
-When a handle is added it's **backfilled with the last N days** (`backfillDays`, default **7**) so its
-charts have history immediately:
-
-1. Fetch the profile (`user/info`) → first `AccountSnapshot`, fills the account's profile fields.
-2. `advanced_search` with `from:USER since_time:… until_time:…`, paginated (up to 25 pages), to pull
-   the date-bounded post history.
-3. Ingest posts → `Post` + `PostSnapshot` rows (source `backfill`).
-4. Mark `backfilledAt`, set `lastPostedAt` and `pollingTier`.
-
-Every call is logged to `ApiCallLog` (purpose `backfill`) so the one-time cost per influencer is
-visible. Accounts added but not yet backfilled (`backfilledAt = null`) are always "due" and get
-backfilled on the next poll as a safety net.
-
----
+Adding a handle backfills the last `backfillDays` (default **7**) so charts have history
+immediately: profile → first snapshot; `advanced_search` (paginated, ≤25 pages) → date-bounded post
+history; every call logged (purpose `backfill`). Accounts never backfilled are always "due".
 
 ## 7. Adaptive polling, freezing & retweet handling
 
 Polling is designed to **control the bill** (`lib/polling.ts`).
 
-**Tiering** — accounts aren't all polled at one flat rate:
-- **Active** (posted within `activeWindowHours`, default **48h**) → polled every `activePollHours`
-  (default **3h**).
-- **Dormant** → polled every `dormantPollHours` (default **24h**).
-- An account is "due" when `now − lastPolledAt ≥ its tier interval` (or it's never been polled/backfilled).
-
-**A single poll of one account:**
-1. Fetch profile → `AccountSnapshot` (source `poll`).
-2. Fetch recent posts (`last_tweets`), paginating only as far back as the freeze window (≤3 pages).
-3. **Refresh scrolled-off in-window posts** — any not-yet-frozen post newer than the freeze window
-   that wasn't in the latest page is refreshed in one cheap batched `tweets?tweet_ids=` call.
-4. Update `lastPolledAt`, `lastPostedAt`, and recompute the tier.
-
-**Freezing** — on each poll only posts **newer than `freezeAgeDays`** (default **3 days**) are
-re-fetched. Once a post is older, it gets one **final snapshot** and is marked `isFrozen` — the app
-stops paying credits to re-read stale posts. Frozen posts still appear in history/charts.
-
-**Retweets are excluded** — a retweet carries the **original author's** metrics, not the influencer's.
-Counting them would misattribute other people's reach and double-count self-retweets. Retweets are
-detected on ingest (`retweeted_tweet` object or an `RT @…` text prefix) and never stored. Quote
-tweets (the influencer's own commentary, with their own reach) **do** count.
-
-**Running a poll:**
-- **Manual** — the "Run poll now" button kicks off a **server-side background job** (`runBackgroundPoll`)
-  via Next.js `after()`; it returns immediately and continues even if you close the tab. A shared,
-  DB-backed heartbeat + progress (`pollRunningAt` / `pollDone` / `pollTotal`) drives a progress bar
-  that's consistent across refreshes and across teammates. A lock prevents overlapping runs.
-- **Scheduled** — Vercel Cron hits `/api/cron/poll` hourly; it runs the same locked job and only
-  polls accounts actually due per their tier.
-- **Local** — `npm run poll` (see [Scripts](#20-scripts--cli)).
-
----
+- **Tiers:** accounts that posted within `activeWindowHours` (48h) poll every `activePollHours`
+  (3h); dormant accounts every `dormantPollHours` (24h).
+- **Freezing:** only posts newer than `freezeAgeDays` (3d) are re-fetched. Older posts get one final
+  snapshot and are frozen — no more credits. **Commissioned posts** use the extended
+  `commissionedFreezeDays` window (14d) and are un-frozen when attached to a campaign.
+- **Cheap refresh:** in-window posts that scrolled off the latest page are refreshed in one batched
+  `tweets?tweet_ids=` call.
+- **Retweets are excluded** (they carry the original author's metrics). Quote tweets count.
+- **Runs:** manual "Run poll now" starts a locked, DB-heartbeat background job (progress shared
+  across tabs/users); Vercel Cron hits `/api/cron/poll` hourly and only polls what's due;
+  `npm run poll` locally.
 
 ## 8. Performance Score & metrics
 
-Computed in `lib/scoring.ts` over a **trailing 7-day window** (posts *authored* in the last 7 days,
-using each post's latest snapshot). Replies and retweets are excluded.
+Computed in `lib/scoring.ts` over a **trailing 7-day window** (organic, non-reply posts; latest
+snapshot per post). **Price never enters this score.**
 
-- **Reach** = average views per post.
-- **Engagement rate (impressions)** = Σ engagements ÷ Σ impressions.
-- Both are **normalized across the tracked set** — **percentile rank** (default) or **z-score** — to
-  a 0–100 scale, then combined:
-  **`Performance Score = reachWeight·reachNorm + engagementWeight·erNorm`** (weights normalized to
-  sum 1; default **50/50**), rounded to one decimal, ranked descending.
+- **Reach** = **MEDIAN** views/post (robust to viral spikes; mean kept for reference; p25 = floor;
+  consistency = IQR ÷ median → steady/normal/spiky).
+- **ER (impressions)** = Σ engagements ÷ Σ impressions (ER vs followers also shown).
+- Both normalized across the tracked set (**percentile** default, z-score optional) → weighted blend
+  (default 50/50) → **0–100**, ranked.
+- **Confidence layer:** `< minPostsForConfidence` posts in-window or data staler than
+  `stalePollHours` → `lowConfidence` + reasons, dimmed in every UI and excluded from planner/dashboard
+  value picks by default.
+- **Movers:** WoW mean views/engagement; ≥ +25% = rising, ≤ −`fallingThreshold` = falling. 4-week
+  weekly-median sparkline per row.
+- Follower growth (7d/30d) is charted for context but excluded from the score.
 
-**Engagement rate is shown two ways:**
-- **ER (impressions)** = engagements ÷ impressions.
-- **ER (followers)** = avg engagements per post ÷ current followers.
+## 9. The value layer (rates → economics)
 
-**Follower growth** is tracked and charted (7d and 30d, absolute + %) as context but is **excluded**
-from the score.
+`lib/value.ts` — the roster's rates are maintained and trusted, so the app computes what the team
+actually trades on. Boundaries: the Performance Score and campaign delivery ratios stay price-free;
+the value layer sits **alongside**, and every value metric inherits the confidence flags.
 
-**Rising flag & movers** — week-over-week: this week's avg views/post vs the previous week's
-(and the same for engagement). An account is "rising" when either jumps **≥ 25%** (`RISING_THRESHOLD`).
-The dashboard's "Rising this week" list ranks by WoW view growth.
+- **Implied CPM (per format)** = rate ÷ median organic views × 1,000 — for QT, post, and thread
+  (retweets carry no native views).
+- **Basis** = QT rate, falling back to the post rate (`valueBasis` records which; everything
+  downstream labels post-basis rows).
+- **Views per dollar** = median views ÷ basis rate; **cost per 1K engagements** = basis rate ÷
+  median engagements × 1,000.
+- **Value Score (0–100)** = ½ · pct(views/$) + ½ · pct(eng/$), percentile-ranked across all priced
+  accounts; `valueRank` = 1..n.
+- **Price position** = implied CPM vs the median CPM of **niche peers** (accounts sharing a tag,
+  ≥3 required, else the whole priced set): ≤ **0.70×** underpriced · ≥ **1.40×** overpriced · else
+  fair. `priceVsPeersPct` carries the exact delta.
+- **Rate freshness:** every rate edit stamps `Account.ratesUpdatedAt` and writes `RateEvent` rows;
+  the UI hints when rates are > 90 days old.
 
----
+Surfaced on the leaderboard (Economics column group + Best value preset), the influencer rate card,
+shortlists (per-item + slate totals), campaigns (spend, actual CPM), the dashboard (Best value
+panel), the planner, and the assistant.
 
-## 9. Leaderboard
+## 10. Budget planner
 
-`/leaderboard` — a fully sortable, filterable table (`components/LeaderboardTable.tsx`).
+`/planner` (`lib/planner.ts`, `POST /api/planner`) — "I have $X for this niche; what's the best
+slate?"
 
-- **Columns:** rank, account, Performance Score, followers, follower Δ 7d, follower Δ 30d, avg
-  views/post (reach), ER (impressions), ER (followers), posts 7d, **QT Rate**, WoW views (with a
-  ▲ rising badge), polling tier, last poll.
-- **Sort** by any column (click the header to toggle asc/desc; nulls sort last).
-- **Filter** by search (handle/name), niche (any tag), tier, and "rising only."
-- **Edit rates inline** — the ✎ button opens a modal to set all four rates (writes via `PATCH`).
-- **Export CSV** of the current filtered view (includes rates and all metrics).
-- Reads a cached snapshot for speed; edits/mutations refresh it immediately.
+- Inputs: budget (USD), format (QT / post / thread), optional niche, optional min-median-views
+  floor, optional max creators, include-low-confidence toggle (default off).
+- Algorithm: rank candidates by **views per dollar** for the chosen format's rate, then walk down
+  the list taking **one slot per creator** while the budget allows (greedy knapsack approximation —
+  near-optimal at these slot prices).
+- Output: the slate with per-creator rate, expected views (their organic median — an estimate,
+  before any paid-post uplift/decay), views/$, CPM, ER, Value ring; totals (cost, leftover, expected
+  views/engagements, blended CPM); a transparent excluded-count line (no rate / low-confidence / no
+  recent posts / below floor / off-niche).
+- Actions: **Save as shortlist** (optionally linked to a campaign; items carry planner notes) and
+  **CSV export**. The assistant can run the same engine via its `planBudget` tool.
 
----
+## 11. Leaderboard
 
-## 10. Campaign rates
+`/leaderboard` — fully sortable/filterable (`components/LeaderboardTable.tsx`).
 
-Each account carries four USD rates: **quote-tweet, post, retweet, thread**.
+- **Presets:** Top performance · **Best value** (sorts Value, filters to priced) · Rising · Falling.
+- **Column groups:** Rank (score + confidence dot) · Reach (median + p25, steadiness) · Engagement ·
+  Audience · Momentum (posts 7d, WoW, 4wk sparkline) · **Economics** (QT rate, post rate hidden by
+  default, est. CPM with a vs-peers arrow, Value ring, price-position badge hidden by default) ·
+  Status.
+- Search / niche / tier / direction / priced-only filters; column visibility menu; sticky header +
+  identity column; per-row actions (☆ shortlist, ✎ rates).
+- **CSV export** of the current view includes all rates + economics fields.
+- Deep-linkable: `?preset=value`, `?direction=falling`, `?tag=…`, `?q=…`.
 
-- Initially imported from the roster CSV (`scripts/import-rates.ts`, which parses messy cells like
-  `Qt+Com $15` / `$41` / `20$`; non-USD values like `1000 inr` are left blank to edit manually).
-- Editable in the leaderboard (✎ modal) and settable on the Watchlist add form.
-- The **QT Rate** column is sortable, and all rates are included in the CSV export — so you can weigh
-  performance against price when picking creators for a campaign.
+## 12. Influencer detail page
 
----
+`/influencer/[username]` — header (avatar, badges, tags, bio, follower counts), stat cards
+(Performance + rank, **Value Score + rank**, median views, followers, both ERs, **est. CPM**, WoW),
+the **Rates & value card** (all four formats with per-format implied CPM, basis marker, price
+position vs peers, value rank, cost per 1K engagements, rate freshness + inline ✎ editor), charts
+(follower growth, cumulative post views — carry-forward so freezes never dip, ER over time, and the
+**view distribution** scatter: every organic post vs the median/p25 bands, commissioned posts as ◆
+markers with delivery multiples), and recent posts ranked by views.
 
-## 11. Influencer detail page
+## 13. Campaigns & placements
 
-`/influencer/[username]` (`lib/metrics.ts` + `components/InfluencerCharts.tsx`):
+`/campaigns` (`lib/placements.ts`) — attach commissioned tweets by URL/id; each is ingested once,
+flagged `commissioned`, un-frozen, and tracked on the extended window.
 
-- **Header** — avatar, name, verified badge, tier, tags, bio, follower/following counts, last poll.
-- **Stat cards** — Performance Score + rank, followers (+7d %), avg views/post, ER (impressions),
-  ER (followers), WoW views.
-- **Charts** (7d / 30d toggle):
-  - **Follower growth** — line from `AccountSnapshot`s.
-  - **Post views (cumulative)** — a **carry-forward** area chart: at each run timestamp it sums each
-    post's last-known views, so the line reflects accumulated reach and **never dips when a post
-    freezes**.
-  - **Engagement rate** — engagements ÷ views over time.
-- **Recent posts** — ranked by views, showing views/likes/reposts/replies/quotes/bookmarks + ER per
-  post, with a "frozen" badge; each links to the tweet. (Retweets never appear.)
+- **Delivery (price-free):** views ÷ the creator's **organic baseline** (their 30d median excluding
+  commissioned posts). Below `underdeliverThreshold` (0.7×) = underdelivered. Distribution bars per
+  placement; median delivery per campaign.
+- **Economics (actuals):** per placement, **actual CPM** = price ÷ delivered views × 1K and cost per
+  engagement; per campaign, **total spend**, **blended CPM** and **cost/engagement** over
+  priced+linked placements only (unpriced views never flatter the CPM).
+- Campaign list shows spend + actual CPM columns; underdelivery alerts include the price paid.
 
----
+## 14. Shortlists
 
-## 12. Cost tracking & budget
+`/shortlists` (`lib/shortlists.ts`) — saved candidate slates, optionally campaign-scoped. Each item
+carries performance (score, median, steadiness, ER) **and economics** (basis rate, implied CPM,
+Value ring, price position). The footer prices the slate: **total cost, expected views, blended
+CPM**, priced/unpriced counts. CSV export includes both layers + a totals line. Items can be added
+from the leaderboard (☆), by handle, via the planner's save action, or by the assistant (with
+confirmation).
 
-`/cost` (`lib/cost-summary.ts`) + a widget on the dashboard.
+## 15. The Ask assistant
 
-- **This month** — credits used and USD, request count.
-- **Projected month-end** — linear run-rate projection from spend so far.
-- **Plan cap** — configurable (`planCapCredits`, default **Pro 25.07M**); shows % used and projected
-  % of cap, with an **over-budget warning** and a **recommended plan** when projected spend exceeds
-  the cap.
-- **Breakdowns:** per **endpoint** (profile/recent-tweets/backfill/refresh), per **day** (30-day bar
-  chart), per **influencer** (top spenders), and **avg credits per poll** (trailing 7d).
-- **Plan tiers table** highlights your current plan and the recommended one for your projected spend.
+The floating **Ask** widget (`components/AskWidget.tsx`, `app/api/chat/*`, `lib/assistant/*`) is a
+Claude-powered analyst over the app's own read models.
 
-Everything derives from `ApiCallLog`, so cost is measured, not estimated.
+- **Curated tools:** queryLeaderboard (niche/direction/tier/min-views/**max-QT-rate/price-position**
+  filters, sortable by **valueScore**), getCreator, compareCreators, listMovers, listNiches,
+  listCampaigns (delivery + economics), listShortlists, **planBudget** (the planner engine),
+  costSummary.
+- **runSql:** SELECT-only fallback against Postgres (guarded, LIMIT enforced; optional
+  `DATABASE_URL_RO`), for questions the curated tools can't express — including RateEvent history.
+- **Write actions** (addToShortlist, runPoll) surface as **Confirm buttons** in the widget; nothing
+  executes until clicked.
+- The system prompt (`lib/assistant/prompt.ts`) enforces: every number from a tool result; median
+  over mean; announce low-confidence; label value metrics as estimates from organic medians.
 
----
+## 16. Dashboard, alerts & command palette
 
-## 13. AI niche categorization
+`/` — stat strip (tracked / active / dormant / **priced** / last poll), then: **Best value** (top
+high-confidence Value Scores with basis rate + est. CPM), **Top by median reach**, **Movers**
+(risers + decliners with sparklines), **Active campaigns** (delivery + spend + blended CPM),
+**Needs attention**, and a **planner cross-link**. The credit-usage widget sits below.
 
-`/niches` (`lib/niche.ts`) — derive niche categories from what creators actually post, then auto-tag
-everyone. **Uses stored post text, so it costs $0 in twitterapi.io credits** — only a one-time
-Anthropic (Claude) cost.
+**Needs attention** (`lib/alerts.ts`) ranks: underdelivering commissioned posts (with price paid) →
+falling accounts → low-confidence scores → dormant accounts; each account appears once at its
+highest severity.
 
-- **Model:** `claude-sonnet-5` via the Anthropic TypeScript SDK, with **structured outputs**
-  (json_schema) so responses are guaranteed valid JSON. Needs `ANTHROPIC_API_KEY`.
-- **Step 1 — Suggest:** samples a few posts from **every** influencer (not just the most recent/
-  prolific), sends them to Claude, and gets back 8–14 proposed niches (name + description).
-- **Step 2 — Review & edit:** you rename/add/remove categories. **Only the confirmed names are used.**
-- **Step 3 — Apply:** classifies each influencer into 1–3 niches and attaches them as **tags**
-  (so they're immediately filterable on the leaderboard). Runs in client-driven batches with a
-  progress bar; ignores any category the model invents outside your list.
+**Command palette** — `⌘K` anywhere (mounted globally from the layout, trigger in the sidebar):
+jump to any creator or campaign, run a poll, open any page.
 
-Post text is sanitized (unpaired surrogate halves from truncated emoji are stripped) so the request
-body stays valid JSON. The current roster's 13 niches (e.g., *AI Agents & Productivity Tools*,
-*AI Model News & Releases*, *Crypto Giveaways & Engagement Farming*) were derived this way.
+## 17. Cost tracking & budget
 
----
+`/cost` (`lib/cost-summary.ts`) — credits + USD this month, linear month-end projection, % of plan
+cap with over-budget warning and a recommended plan, per-endpoint / per-day / per-influencer
+breakdowns, avg credits per poll. Everything derives from `ApiCallLog`, so cost is measured, never
+estimated.
 
-## 14. Settings
+## 18. AI niche categorization
 
-`/settings` — a single shared config (`AppSettings`) applied workspace-wide:
+`/niches` (`lib/niche.ts`) — Claude (structured outputs) proposes 8–14 niches from sampled stored
+post text ($0 in twitterapi.io credits), you review/edit, then it classifies each creator into 1–3
+of the **confirmed** niches and attaches them as tags (immediately filterable everywhere). Post text
+is sanitized against unpaired surrogates so request bodies stay valid JSON.
 
-- **Performance Score weights** — reach vs engagement slider; **normalization** (percentile / z-score).
-- **Budget** — plan cap (preset tiers or custom credit value).
-- **Adaptive polling** — active window (h), active poll interval (h), dormant poll interval (h),
-  freeze age (days), backfill window (days).
-- **Include replies** in tracking (default off).
+## 19. Settings
 
-Defaults: weights 50/50 · plan cap Pro 25.07M · active window 48h · active poll 3h · dormant poll
-24h · freeze 3 days · backfill 7 days · percentile normalization · replies off.
+`/settings` — shared workspace config: score weights + normalization; plan cap; adaptive polling
+cadences (active window/interval, dormant interval, freeze age, backfill days); confidence
+thresholds (min posts, stale hours) and falling threshold; commissioned freeze window and
+underdeliver threshold; include-replies toggle.
 
----
+## 20. UI design language
 
-## 15. Dashboard
+Operator-terminal dark theme, defined entirely by semantic tokens in `tailwind.config.ts` +
+`app/globals.css` (change tokens → whole app re-themes):
 
-`/` — at-a-glance: tracked accounts, polling-tier split (active/dormant), posts tracked, last poll
-time, the **credit-usage widget**, **top performers**, **rising this week**, and a **Run poll now**
-button.
+- **Dual accents:** violet (`accent`) = performance/navigation; teal (`money`) = the value layer —
+  rates, CPM, Value Score, spend. The distinction is consistent app-wide.
+- **Glass surfaces** (translucent panels with top hairline highlights + backdrop blur), an ambient
+  fixed background glow, refined shadows and glow rings, `fade-up` micro-animations, shimmer
+  skeletons.
+- **Instrument components** (`components/ui.tsx`): Card, StatCard (accent hairlines), Badge,
+  ProgressBar (gradient), Avatar, Sparkline, **ScoreRing** (radial 0–100 meter, violet/teal,
+  dimmed when low-confidence), **DeltaChip**, PageHeader (eyebrow support), EmptyState.
+- Inter (UI) + JetBrains Mono (all numerics, tabular) via next/font. Dark Recharts tooltips shared
+  from `TOOLTIP_STYLE`. Keyboard-only focus rings. `prefers-reduced-motion` respected.
 
----
+## 21. Performance & caching
 
-## 16. Performance & caching
+Heavy read aggregations (leaderboard incl. economics, cost summary, watchlist overview, influencer
+detail, campaigns, shortlists) are wrapped in `unstable_cache` (`lib/cache.ts`) with a 120s TTL and
+tag `app-data`; every mutation calls `revalidateTag`. **Cache-key version `V` must be bumped whenever
+a cached shape changes** (Vercel's Data Cache persists across deploys) — currently `v3` (economics
+fields). The influencer page reuses the cached leaderboard for rank; a global `loading.tsx` gives
+instant navigation feedback.
 
-The heavy read aggregations (leaderboard, cost summary, watchlist overview, influencer detail) are
-wrapped in `unstable_cache` (`lib/cache.ts`) with a **120-second TTL** and the tag `app-data`, so
-tab switches are near-instant instead of re-scanning Postgres each time. Every mutation
-(add/remove/tag/rate/settings/poll/niche-apply) calls `revalidateTag("app-data")` to refresh
-immediately. The influencer detail page reuses the cached leaderboard for its rank rather than
-recomputing the whole set. A global `loading.tsx` gives instant navigation feedback.
+## 22. Scheduled polling (Cron)
 
----
+`vercel.json` registers an hourly cron on `/api/cron/poll` (Vercel sends
+`Authorization: Bearer $CRON_SECRET`). Adaptive tiering means each run only touches accounts
+actually due. Vercel Hobby = daily crons + 60s functions; **Pro** (hourly + 300s) recommended at
+~300 accounts.
 
-## 17. Scheduled polling (Cron)
+## 23. The DataProvider abstraction
 
-`vercel.json` registers an **hourly** cron on `/api/cron/poll`. Vercel automatically sends
-`Authorization: Bearer $CRON_SECRET`, which the route verifies. Adaptive tiering means each hourly
-run only touches accounts actually due, so "hourly" ≠ "poll everyone every hour."
+`lib/provider/` — `DataProvider` interface (`getUserByUsername`, `getUserLatestTweets`,
+`searchTweets`, `getTweetsByIds`, optional `getBalance`), every method returning a `cost` object.
+`TwitterApiIoProvider` (defensive envelope handling, QPS throttle, retries, chunked batch reads) and
+`MockProvider` (deterministic fake data, `DATA_PROVIDER=mock`). Swap sources by implementing the
+interface and registering it in `lib/provider/index.ts`.
 
-> Vercel **Hobby** allows only daily crons + 60s functions; **Pro** allows the hourly schedule +
-> 300s — recommended for ~300 accounts. Change the schedule (e.g. `0 */3 * * *`) or the per-tier
-> intervals in Settings to dial cadence up or down.
+## 24. API routes
 
----
-
-## 18. The DataProvider abstraction
-
-The data source sits behind a swappable interface (`lib/provider/`):
-
-- `DataProvider` — `getUserByUsername`, `getUserLatestTweets`, `searchTweets`, `getTweetsByIds`,
-  optional `getBalance`. Every method returns a `cost` object so credit logging is uniform.
-- `TwitterApiIoProvider` — the concrete implementation (defensive response-envelope handling per the
-  official skill, QPS throttle, retries, chunked batch reads).
-- `MockProvider` — deterministic fake data (`DATA_PROVIDER=mock`) so the whole app runs with no API
-  key, for local dev/tests.
-- `getProvider()` chooses based on `DATA_PROVIDER`.
-
-To swap sources later (e.g. a different vendor), implement `DataProvider` and register it — nothing
-else changes.
-
----
-
-## 19. API routes
-
-All under `app/api/` (Node runtime, dynamic). Session routes require a signed-in `@atomikgrowth.com`
-user; the cron route requires `CRON_SECRET`.
+All under `app/api/` (Node runtime, dynamic). Session routes require a signed-in domain user; the
+cron route requires `CRON_SECRET`.
 
 | Route | Method | Purpose |
 |---|---|---|
 | `/api/auth/[...nextauth]` | GET/POST | Auth.js handlers |
 | `/api/accounts` | GET / POST | list overview / add (+ tags, rates, backfill) |
-| `/api/accounts/[id]` | PATCH / DELETE | update status/tags/rates / remove |
+| `/api/accounts/[id]` | PATCH / DELETE | update status/tags/**rates (writes RateEvent + ratesUpdatedAt)** / remove |
 | `/api/accounts/[id]/backfill` | POST | backfill one account |
-| `/api/poll` | POST | start the server-side background poll |
-| `/api/poll/status` | GET | shared poll progress (for the progress bar) |
+| `/api/planner` | POST | **budget allocation (zod-validated)** |
+| `/api/campaigns` · `/api/campaigns/[id]` | GET/POST · PATCH/DELETE | campaigns CRUD |
+| `/api/placements` · `/api/placements/[id]` | POST · DELETE | attach / detach commissioned posts |
+| `/api/shortlists` | GET / POST | list / create (**optional `items[]` bulk seed** — used by the planner) |
+| `/api/shortlists/[id]` · `[id]/items` · `items/[itemId]` | DELETE · POST · DELETE | shortlist items |
+| `/api/chat` · `/api/chat/act` | POST | the Ask assistant (stream + confirmed write actions) |
+| `/api/poll` · `/api/poll/status` | POST · GET | background poll + shared progress |
 | `/api/cron/poll` | GET | scheduled poll (CRON_SECRET) |
 | `/api/settings` | GET / PATCH | read / update settings (zod-validated) |
-| `/api/niches/propose` | POST | AI: propose a niche taxonomy |
-| `/api/niches/apply` | POST | AI: classify + tag a batch of influencers |
+| `/api/niches/propose` · `/api/niches/apply` | POST | AI niche taxonomy / classification |
 
----
-
-## 20. Scripts / CLI
+## 25. Scripts / CLI
 
 Run with env loaded (`npm run <script>`), all via `tsx`:
 
-- `npm run dev` / `build` / `start` — Next.js.
-- `npm run db:push` — sync schema to the DB. `npm run db:seed` — settings + starter tags.
-  `npm run db:studio` — Prisma Studio. `npm run db:reset` — force-reset + seed.
-- `npm run poll` — poll due accounts locally. `-- --force` polls all active; `-- --backfill` backfills
-  any account missing history.
-- `scripts/import.ts` — bulk-import handles from a CSV: `node --import tsx scripts/import.ts "<csv>"
-  --tag=Roster [--backfill=N]`.
-- `scripts/import-rates.ts` — import campaign rates from the roster CSV.
+- `npm run dev` / `build` / `start` — Next.js. `npm run db:push` / `db:seed` / `db:studio` / `db:reset`.
+- `npm run poll` — poll due accounts (`-- --force` all active; `-- --backfill` missing history).
+- `scripts/import.ts` — bulk-import handles from a CSV (`--tag=Roster [--backfill=N]`).
+- `scripts/import-rates.ts` — import campaign rates from the roster CSV (parses messy cells like
+  `Qt+Com $15` / `20$`; non-USD left blank). **Writes RateEvent rows + `ratesUpdatedAt`** for any
+  change.
 
----
-
-## 21. Environment variables
+## 26. Environment variables
 
 | Var | What |
 |---|---|
 | `DATABASE_URL` | Postgres (Neon) pooled connection string |
-| `AUTH_SECRET` | Auth.js secret (`openssl rand -base64 32`) |
-| `AUTH_TRUST_HOST` | `true` |
+| `DATABASE_URL_RO` | Optional read-only Postgres URL for the assistant's SQL tool |
+| `AUTH_SECRET` / `AUTH_TRUST_HOST` | Auth.js secret / `true` |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth client |
 | `ALLOWED_EMAIL_DOMAIN` | `atomikgrowth.com` |
 | `DEV_AUTH_BYPASS` | `true` locally for the dev login; `false` in prod |
 | `DATA_PROVIDER` | `twitterapiio` (real) or `mock` |
-| `TWITTERAPI_IO_KEY` | twitterapi.io API key |
-| `TWITTERAPI_QPS_MS` | ms between provider requests (Free ≈ 5200, Pro = 50, 0 = off) |
+| `TWITTERAPI_IO_KEY` / `TWITTERAPI_QPS_MS` | twitterapi.io key / request spacing (Pro = 50) |
 | `CRON_SECRET` | Bearer token Vercel Cron sends to `/api/cron/poll` |
-| `ANTHROPIC_API_KEY` | Claude key for the Niches feature |
+| `ANTHROPIC_API_KEY` | Claude key for Niches + the assistant |
 
-Secrets live in `.env.local` locally (gitignored) and in Vercel env vars in production. `.env` holds
-only `DATABASE_URL` for the Prisma CLI.
+## 27. Deployment
 
----
+Vercel + Neon. Full runbook in **`DEPLOY.md`**; in short: provision Postgres, `npm run db:push` +
+`db:seed`, import the roster + rates, push to GitHub → import in Vercel → set env vars
+(`DEV_AUTH_BYPASS=false`), add the prod Google redirect URI, `TWITTERAPI_QPS_MS=50`, deploy.
 
-## 22. Deployment
+> **Schema changes ship with `npm run db:push` against the prod `DATABASE_URL`, run before or
+> immediately with the deploy.** Recent additive changes: `Account.ratesUpdatedAt`, `RateEvent`.
+> The app degrades gracefully if RateEvent lags (writes are best-effort), but any Account read fails
+> until `ratesUpdatedAt` exists — so push the schema first.
 
-Postgres in prod, Vercel for hosting + cron. The provider is hardcoded `postgresql`. Full runbook in
-**`DEPLOY.md`**; in short:
-
-1. Provision Postgres (Neon free tier or Vercel Postgres); set `DATABASE_URL` (pooled).
-2. `npm run db:push` + `npm run db:seed` against it; import the roster (`scripts/import.ts`,
-   `scripts/import-rates.ts`).
-3. Push to GitHub → import in Vercel → set all env vars (Production + Preview), `DEV_AUTH_BYPASS=false`.
-4. Add the Google redirect URI `https://<domain>/api/auth/callback/google`.
-5. Set `TWITTERAPI_QPS_MS=50` for the Pro plan. Deploy.
-
----
-
-## 23. Project structure
+## 28. Project structure
 
 ```
 app/                       # App Router pages + API routes
   page.tsx                 # dashboard
-  leaderboard/ accounts/ niches/ cost/ settings/ login/
+  leaderboard/ planner/ campaigns/ shortlists/ accounts/ niches/ cost/ settings/ login/
   influencer/[username]/   # detail page
-  api/                     # accounts, poll, cron, settings, niches, auth
-components/                # Nav, LeaderboardTable, AccountsManager, charts,
-                           # CostWidget, RunPollButton, RatesEditor, NicheManager, ui
+  api/                     # accounts, planner, campaigns, placements, shortlists,
+                           # chat, poll, cron, settings, niches, auth
+components/                # Nav, CommandPalette, LeaderboardTable, BudgetPlanner, RateCard,
+                           # CampaignsManager, CampaignDetail, ShortlistsManager, AddToShortlist,
+                           # AccountsManager, InfluencerCharts, CostWidget, CostDailyChart,
+                           # AskWidget, RunPollButton, RatesEditor, NicheManager, SettingsForm, ui
 lib/
-  db.ts                    # Prisma singleton
+  db.ts                    # Prisma singleton (Neon cold-start retry)
   provider/                # DataProvider: types, twitterapiio, mock, index
   cost.ts cost-summary.ts  # credit model + spend analytics
   polling.ts ingest.ts     # poll/backfill engine + snapshot writes
-  scoring.ts metrics.ts    # Performance Score + detail-page series
-  cache.ts settings.ts     # cached reads + app settings
-  accounts.ts handles.ts   # watchlist queries + handle parsing
+  scoring.ts stats.ts      # Performance Score + shared statistics
+  value.ts planner.ts      # the value layer + budget allocation
+  placements.ts            # campaign delivery + spend economics
+  shortlists.ts alerts.ts  # slates with totals + needs-attention feed
+  metrics.ts               # influencer detail series
+  cache.ts settings.ts     # cached reads (bump V on shape changes) + app settings
+  accounts.ts handles.ts   # watchlist queries + handle/tweet-id parsing
   engagement.ts twitter-time.ts format.ts logging.ts api.ts
   anthropic.ts niche.ts    # Claude client + niche taxonomy/classification
-prisma/schema.prisma       # data model
+  assistant/               # prompt, tools (incl. planBudget), sql guard
+prisma/schema.prisma       # data model (incl. RateEvent)
 scripts/                   # poll, import, import-rates, seed
 auth.ts middleware.ts vercel.json
 ```
 
----
+## 29. Operational notes & gotchas
 
-## 24. Operational notes & gotchas
+- **Neon auto-suspends when idle** — first query after a lull can time out; retry wakes it.
+- **Cache lag** — out-of-band DB changes (scripts) can show stale for up to ~120s; in-app mutations
+  refresh instantly. **Bump `V` in `lib/cache.ts` whenever a cached shape changes.**
+- **twitterapi.io has two limits** — credits (spend) and QPS (throughput). A slow poll usually means
+  `TWITTERAPI_QPS_MS` is too high for the plan.
+- **Value metrics are estimates** — implied CPM and expected views come from organic medians; paid
+  posts can land above or below. Low-confidence rows are dimmed and excluded from planner/dashboard
+  picks by default; don't quote their CPMs.
+- **Rate hygiene** — the UI flags rates older than 90 days; re-confirm before quoting a client.
+  RateEvent keeps the full negotiation history (`SELECT * FROM "RateEvent" WHERE "accountId" = …`).
+- **Counts are 32-bit ints** — fine for this domain.
+- **Secrets that passed through chat should be rotated** (Neon password, Google secret,
+  twitterapi.io key, Anthropic key) — env-only, so rotating is a value swap + redeploy.
 
-- **Neon auto-suspends when idle** — the first query after a lull can time out; retry wakes it.
-- **Cache lag** — after an out-of-band DB change (a script, not an in-app action), pages can show
-  stale data for up to ~120s until the cache revalidates (in-app mutations refresh instantly).
-- **twitterapi.io has two limits** — *credits* (spend) and *QPS* (throughput). A slow poll usually
-  means `TWITTERAPI_QPS_MS` is too high for your plan, not a bug.
-- **Counts are stored as 32-bit ints** — fine for this domain (< 2.1B views/followers per item).
-- **Secrets that passed through chat should be rotated** once set up (Neon password, Google secret,
-  twitterapi.io key, Anthropic key) — the app reads them from env, so rotating is a value swap +
-  redeploy.
+## 30. Out of scope / roadmap
 
----
-
-## 25. Out of scope / roadmap
-
-- **Audience-quality analysis** (e.g. % US, bot detection) is explicitly out of scope for v1.
-- Natural next steps: a niche-breakdown widget on the dashboard (counts per niche → filtered
-  leaderboard), rate-vs-performance ("value") scoring, CSV/Sheets export of campaign shortlists, and
-  alerting on big movers.
+- **Audience-quality analysis** (% US, bot detection) remains out of scope.
+- Natural next steps: niche-level value benchmarks on the dashboard (median CPM per niche),
+  rate-change alerts ("@x raised QT 40%"), planner v2 (multi-slot per creator, per-niche quotas,
+  frequency caps), campaign expected-vs-actual forecasting from planner slates, and Sheets export.

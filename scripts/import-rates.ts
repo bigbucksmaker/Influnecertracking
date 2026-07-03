@@ -35,12 +35,33 @@ async function main() {
     const rateThread = parseRate(cols[5]); // "Threads"
     if (rateQuoteTweet != null) withRate++;
 
-    const res = await prisma.account.updateMany({
+    // Write the audit trail + freshness stamp for any change (value layer
+    // reads ratesUpdatedAt; RateEvent is the negotiation history).
+    const existing = await prisma.account.findUnique({
       where: { username },
-      data: { rateQuoteTweet, ratePost, rateRetweet, rateThread },
+      select: { id: true, rateQuoteTweet: true, ratePost: true, rateRetweet: true, rateThread: true },
     });
-    if (res.count > 0) updated++;
-    else missing++;
+    if (!existing) {
+      missing++;
+      continue;
+    }
+    const next = { rateQuoteTweet, ratePost, rateRetweet, rateThread };
+    const changes = (Object.keys(next) as (keyof typeof next)[])
+      .filter((k) => next[k] !== existing[k])
+      .map((k) => ({ accountId: existing.id, field: k, oldValue: existing[k], newValue: next[k], changedBy: "import-rates" }));
+
+    await prisma.account.update({
+      where: { id: existing.id },
+      data: { ...next, ...(changes.length ? { ratesUpdatedAt: new Date() } : {}) },
+    });
+    if (changes.length) {
+      try {
+        await prisma.rateEvent.createMany({ data: changes });
+      } catch {
+        /* RateEvent table may predate `prisma db push` — rate values are still saved */
+      }
+    }
+    updated++;
   }
   console.log(`Updated ${updated} accounts (${withRate} with a quote-tweet rate), ${missing} not found.`);
 }

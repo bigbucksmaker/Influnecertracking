@@ -14,10 +14,10 @@ type Inv = {
 };
 
 const EXAMPLES = [
-  "Top 5 AI creators by median views",
+  "Best value creators under $50 per QT",
+  "Build me a $2k quote-tweet plan for AI creators",
   "Who's rising this week in crypto?",
   "Compare @levelsio and @nikitabier",
-  "Creators with >50k median and steady consistency",
 ];
 
 // Past-tense labels for completed tool steps (activity chips).
@@ -29,6 +29,7 @@ const READ_LABELS: Record<string, string> = {
   listNiches: "listed niches",
   listCampaigns: "checked campaigns",
   listShortlists: "listed shortlists",
+  planBudget: "built a budget plan",
   costSummary: "checked spend",
   runSql: "ran a SQL query",
 };
@@ -42,6 +43,7 @@ const RUNNING_LABELS: Record<string, string> = {
   listNiches: "Listing niches",
   listCampaigns: "Checking campaigns",
   listShortlists: "Listing shortlists",
+  planBudget: "Allocating the budget",
   costSummary: "Checking spend",
   runSql: "Running a query",
 };

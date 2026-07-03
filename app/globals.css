@@ -15,10 +15,69 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+/* ---------------------------------------------------------------------------
+   Ambient canvas — two ultra-soft radial glows behind everything. Fixed and
+   non-interactive; opacity is low enough that data stays perfectly legible.
+--------------------------------------------------------------------------- */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(56rem 34rem at 12% -8%, rgba(124, 109, 247, 0.09), transparent 60%),
+    radial-gradient(48rem 30rem at 100% 12%, rgba(42, 200, 181, 0.05), transparent 60%),
+    radial-gradient(60rem 42rem at 50% 118%, rgba(124, 109, 247, 0.045), transparent 62%);
+}
+
 /* All numerics line up in tables and stat readouts. */
 .tnum,
 .font-mono {
   font-variant-numeric: tabular-nums;
+}
+
+/* Gradient headline for hero numbers / page titles that earn it. */
+.text-gradient {
+  background: linear-gradient(92deg, #edeff3 0%, #b9b1fb 55%, #7c6df7 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.text-gradient-money {
+  background: linear-gradient(92deg, #edeff3 0%, #8fe8dc 55%, #2ac8b5 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glass panel — translucent surface with a top hairline highlight. */
+.glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0) 34%),
+    rgba(15, 17, 22, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Shimmer placeholder for loading states. Keyframes defined here (not only in
+   the Tailwind config) so the raw `animation:` reference always resolves. */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.skeleton {
+  @apply rounded-md bg-surface-2;
+  background-image: linear-gradient(
+    100deg,
+    transparent 32%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 68%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
 }
 
 /* Thin, dark scrollbars for the data tables. */
@@ -42,6 +101,10 @@ table.data th {
 }
 table.data td {
   @apply whitespace-nowrap;
+}
+/* Row hover: soft raise + a hairline accent on the left edge. */
+table.data tbody tr {
+  transition: background-color 120ms ease;
 }
 
 /* Keyboard focus — visible, on-brand, never on mouse click. */

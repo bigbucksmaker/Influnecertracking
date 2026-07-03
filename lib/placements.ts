@@ -11,8 +11,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Organic baseline — the creator's "normal" level, EXCLUDING commissioned posts.
-// This is what a commissioned post's delivery is measured against. Price is
-// never involved.
+// This is what a commissioned post's delivery is measured against. Delivery
+// ratios stay price-free by design; price enters ONLY the economics read-outs
+// (actual CPM, spend, cost per engagement) computed alongside them.
 // ---------------------------------------------------------------------------
 export interface Baseline {
   medianViews: number;
@@ -56,7 +57,7 @@ async function baselinesFor(accountIds: string[]): Promise<Map<string, Baseline>
 export interface PlacementDetail {
   id: string;
   type: string;
-  priceUsd: number | null; // reference only — not used in any calc
+  priceUsd: number | null;
   note: string | null;
   createdAt: string;
   account: { id: string; username: string; displayName: string | null; profilePicture: string | null };
@@ -74,6 +75,9 @@ export interface PlacementDetail {
   deliveryRatioViews: number | null;
   deliveryRatioEng: number | null;
   underdelivered: boolean;
+  // Economics — what the placement actually cost per unit of delivery.
+  actualCpm: number | null; // priceUsd ÷ delivered views × 1K
+  costPerEng: number | null; // priceUsd ÷ delivered engagements
 }
 
 type PlacementWithRels = Placement & {
@@ -97,6 +101,14 @@ function enrich(p: PlacementWithRels, baseline: Baseline, threshold: number): Pl
   const deliveryRatioEng =
     eng != null && baseline.medianEng > 0 ? eng / baseline.medianEng : null;
   const underdelivered = deliveryRatioViews != null && deliveryRatioViews < threshold;
+  const actualCpm =
+    p.priceUsd != null && p.priceUsd > 0 && views != null && views > 0
+      ? Math.round((p.priceUsd / views) * 1000 * 100) / 100
+      : null;
+  const costPerEng =
+    p.priceUsd != null && p.priceUsd > 0 && eng != null && eng > 0
+      ? Math.round((p.priceUsd / eng) * 100) / 100
+      : null;
   return {
     id: p.id,
     type: p.type,
@@ -120,6 +132,8 @@ function enrich(p: PlacementWithRels, baseline: Baseline, threshold: number): Pl
     deliveryRatioViews,
     deliveryRatioEng,
     underdelivered,
+    actualCpm,
+    costPerEng,
   };
 }
 
@@ -154,6 +168,11 @@ export interface CampaignSummary {
   totalEngagements: number;
   medianDeliveryRatio: number | null;
   underdeliverCount: number;
+  // Economics — actuals across priced placements.
+  totalSpendUsd: number; // Σ priceUsd
+  pricedCount: number; // placements with a price
+  blendedCpm: number | null; // spend ÷ views of priced+linked placements × 1K
+  costPerEngagement: number | null; // spend ÷ engagements of priced+linked placements
 }
 
 export interface CampaignDetail extends CampaignSummary {
@@ -168,7 +187,28 @@ function rollup(details: PlacementDetail[]) {
   const medianDeliveryRatio = ratios.length ? summarizeViews(ratios).median : null;
   const underdeliverCount = details.filter((d) => d.underdelivered).length;
   const linkedCount = details.filter((d) => d.post != null).length;
-  return { totalViews, totalEngagements, ratios, medianDeliveryRatio, underdeliverCount, linkedCount };
+  // Economics: blended actuals over placements that are BOTH priced and linked,
+  // so unpriced views never flatter the CPM.
+  const priced = details.filter((d) => d.priceUsd != null && d.priceUsd > 0);
+  const totalSpendUsd = Math.round(priced.reduce((s, d) => s + (d.priceUsd ?? 0), 0) * 100) / 100;
+  const pricedLinked = priced.filter((d) => d.post != null);
+  const pricedViews = pricedLinked.reduce((s, d) => s + (d.post?.views ?? 0), 0);
+  const pricedEng = pricedLinked.reduce((s, d) => s + (d.post?.engagements ?? 0), 0);
+  const pricedSpend = pricedLinked.reduce((s, d) => s + (d.priceUsd ?? 0), 0);
+  const blendedCpm = pricedViews > 0 ? Math.round((pricedSpend / pricedViews) * 1000 * 100) / 100 : null;
+  const costPerEngagement = pricedEng > 0 ? Math.round((pricedSpend / pricedEng) * 100) / 100 : null;
+  return {
+    totalViews,
+    totalEngagements,
+    ratios,
+    medianDeliveryRatio,
+    underdeliverCount,
+    linkedCount,
+    totalSpendUsd,
+    pricedCount: priced.length,
+    blendedCpm,
+    costPerEngagement,
+  };
 }
 
 export async function getCampaignsOverview(): Promise<CampaignSummary[]> {
@@ -199,6 +239,10 @@ export async function getCampaignsOverview(): Promise<CampaignSummary[]> {
       totalEngagements: r.totalEngagements,
       medianDeliveryRatio: r.medianDeliveryRatio,
       underdeliverCount: r.underdeliverCount,
+      totalSpendUsd: r.totalSpendUsd,
+      pricedCount: r.pricedCount,
+      blendedCpm: r.blendedCpm,
+      costPerEngagement: r.costPerEngagement,
     };
   });
 }
@@ -230,6 +274,10 @@ export async function getCampaignDetail(id: string): Promise<CampaignDetail | nu
     totalEngagements: r.totalEngagements,
     medianDeliveryRatio: r.medianDeliveryRatio,
     underdeliverCount: r.underdeliverCount,
+    totalSpendUsd: r.totalSpendUsd,
+    pricedCount: r.pricedCount,
+    blendedCpm: r.blendedCpm,
+    costPerEngagement: r.costPerEngagement,
     placements,
     deliveryDistribution: r.ratios,
   };
@@ -244,6 +292,7 @@ export interface UnderdeliveringPlacement {
   profilePicture: string | null;
   deliveryRatioViews: number;
   views: number;
+  priceUsd: number | null; // what was paid for the shortfall (sharpens the alert)
 }
 
 /** Under-delivering commissioned posts across ACTIVE campaigns (for alerting). */
@@ -268,6 +317,7 @@ export async function getUnderdeliveringPlacements(): Promise<UnderdeliveringPla
           profilePicture: d.account.profilePicture,
           deliveryRatioViews: d.deliveryRatioViews,
           views: d.post?.views ?? 0,
+          priceUsd: d.priceUsd,
         });
       }
     }

@@ -48,7 +48,10 @@ export function buildAttention(
       displayName: u.displayName,
       profilePicture: u.profilePicture,
       title: `${(u.deliveryRatioViews).toFixed(1)}× delivery in ${u.campaignName}`,
-      detail: "commissioned post below baseline",
+      detail:
+        u.priceUsd != null && u.priceUsd > 0
+          ? `$${Math.round(u.priceUsd)} paid · below baseline`
+          : "commissioned post below baseline",
       href: `/campaigns/${u.campaignId}`,
     });
   }

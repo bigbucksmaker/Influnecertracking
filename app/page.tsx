@@ -6,9 +6,8 @@ import { getUnderdeliveringPlacements } from "@/lib/placements";
 import { buildAttention, type AttentionItem } from "@/lib/alerts";
 import { CostWidget } from "@/components/CostWidget";
 import { RunPollButton } from "@/components/RunPollButton";
-import { CommandPalette } from "@/components/CommandPalette";
-import { Card, Badge, Avatar, EmptyState, PageHeader, Sparkline } from "@/components/ui";
-import { formatNumber, formatRatio, formatSignedPct, relativeTime } from "@/lib/format";
+import { Card, Badge, Avatar, EmptyState, PageHeader, Sparkline, ScoreRing } from "@/components/ui";
+import { formatNumber, formatRatio, formatSignedPct, formatUsd, relativeTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts retry)
@@ -36,6 +35,10 @@ export default async function DashboardPage() {
   ]);
 
   const topByMedian = [...board].sort((a, b) => b.medianViews - a.medianViews).slice(0, 5);
+  const bestValue = board
+    .filter((r) => r.valueScore != null && !r.lowConfidence)
+    .sort((a, b) => (a.valueRank ?? Infinity) - (b.valueRank ?? Infinity))
+    .slice(0, 5);
   const risers = topMovers(board, 4).filter((r) => (r.wowViewsPct ?? 0) > 0);
   const decliners = topDecliners(board, 4);
   const activeCampaigns = campaigns.filter((c) => c.status === "active");
@@ -43,17 +46,14 @@ export default async function DashboardPage() {
 
   const activeCount = accounts.filter((a) => a.status === "active").length;
   const dormant = accounts.filter((a) => a.status === "active" && a.pollingTier === "dormant").length;
+  const pricedCount = board.filter((r) => r.basisRate != null).length;
   const lastPollTs = accounts.map((a) => a.lastPolledAt).filter(Boolean).sort().pop();
 
   return (
     <>
-      <CommandPalette
-        creators={board.map((r) => ({ username: r.username, displayName: r.displayName, profilePicture: r.profilePicture }))}
-        campaigns={campaigns.map((c) => ({ id: c.id, name: c.name, client: c.client }))}
-      />
       <PageHeader
         title="Dashboard"
-        description="Shared workspace — vet and monitor your X roster."
+        description="Shared workspace — vet, price, and monitor your X roster."
         actions={<RunPollButton />}
       />
 
@@ -61,16 +61,53 @@ export default async function DashboardPage() {
         tracked={accounts.length}
         active={activeCount}
         dormant={dormant}
+        priced={pricedCount}
         lastPoll={lastPollTs ? relativeTime(lastPollTs) : "never"}
       />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        {/* 1. Top by median reach — shortlisting entry point */}
+        {/* 1. Best value — performance per dollar (the booking shortlist) */}
+        <Panel title="Best value" href="/leaderboard?preset=value" cta="Full ranking →">
+          {bestValue.length === 0 ? (
+            <div className="py-6 text-center text-sm text-subtle">
+              No priced creators with solid data yet. Set rates from the{" "}
+              <Link href="/leaderboard" className="text-accent-400 hover:underline">
+                leaderboard
+              </Link>{" "}
+              (✎ rates).
+            </div>
+          ) : (
+            <ol className="space-y-1.5">
+              {bestValue.map((r) => (
+                <li key={r.accountId}>
+                  <Link href={`/influencer/${r.username}`} className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-surface-2">
+                    <ScoreRing score={r.valueScore} kind="value" title="Value Score — views & engagement per dollar, percentile-ranked" />
+                    <Avatar src={r.profilePicture} alt={r.username} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-fg">{r.displayName ?? r.username}</div>
+                      <div className="truncate text-xs text-subtle">
+                        {formatNumber(r.medianViews)} median views · {r.valueBasis === "qt" ? "QT" : "post"} ${r.basisRate}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono text-sm font-semibold tabular-nums text-money-400">
+                        {r.valueBasis === "qt" ? (r.cpmQuote != null ? `$${r.cpmQuote}` : "—") : r.cpmPost != null ? `$${r.cpmPost}` : "—"}
+                      </div>
+                      <div className="text-[10.5px] text-subtle">est. CPM</div>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Panel>
+
+        {/* 2. Top by median reach */}
         <Panel title="Top by median reach" href="/leaderboard" cta="Leaderboard →">
           <ol className="space-y-1.5">
             {topByMedian.map((r, i) => (
               <li key={r.accountId}>
-                <Link href={`/influencer/${r.username}`} className="flex items-center gap-3 rounded-lg p-2 hover:bg-surface-2">
+                <Link href={`/influencer/${r.username}`} className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-surface-2">
                   <span className="w-4 text-xs font-semibold text-subtle">{i + 1}</span>
                   <Avatar src={r.profilePicture} alt={r.username} />
                   <div className="min-w-0 flex-1">
@@ -83,7 +120,7 @@ export default async function DashboardPage() {
                     <div className="truncate text-xs text-subtle">@{r.username}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-semibold text-fg">{formatNumber(r.medianViews)}</div>
+                    <div className="font-mono text-sm font-semibold tabular-nums text-fg">{formatNumber(r.medianViews)}</div>
                     <div className="text-xs text-subtle">median views</div>
                   </div>
                 </Link>
@@ -92,7 +129,7 @@ export default async function DashboardPage() {
           </ol>
         </Panel>
 
-        {/* 2. Movers — risers AND decliners with sparklines */}
+        {/* 3. Movers — risers AND decliners with sparklines */}
         <Panel title="Movers" href="/leaderboard?direction=rising" cta="All movers →">
           <div className="space-y-3">
             <MoverGroup label="Rising" rows={risers} tone="up" empty="No risers this week." />
@@ -100,7 +137,7 @@ export default async function DashboardPage() {
           </div>
         </Panel>
 
-        {/* 3. Active campaigns — delivery vs baseline */}
+        {/* 4. Active campaigns — delivery vs baseline + spend */}
         <Panel title="Active campaigns" href="/campaigns" cta="All campaigns →">
           {activeCampaigns.length === 0 ? (
             <div className="py-6 text-center text-sm text-subtle">
@@ -113,20 +150,25 @@ export default async function DashboardPage() {
             <ul className="space-y-1.5">
               {activeCampaigns.slice(0, 5).map((c) => (
                 <li key={c.id}>
-                  <Link href={`/campaigns/${c.id}`} className="flex items-center gap-3 rounded-lg p-2 hover:bg-surface-2">
+                  <Link href={`/campaigns/${c.id}`} className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-surface-2">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-fg">{c.name}</div>
                       <div className="truncate text-xs text-subtle">
                         {c.client} · {c.placementCount} placement{c.placementCount === 1 ? "" : "s"} ·{" "}
                         {formatNumber(c.totalViews)} views
+                        {c.totalSpendUsd > 0 && (
+                          <span className="text-money-400"> · {formatUsd(c.totalSpendUsd)} spent</span>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-semibold text-fg">
+                      <div className="font-mono text-sm font-semibold tabular-nums text-fg">
                         {formatRatio(c.medianDeliveryRatio)}
                       </div>
                       {c.underdeliverCount > 0 ? (
                         <Badge color="red">{c.underdeliverCount} under</Badge>
+                      ) : c.blendedCpm != null ? (
+                        <span className="text-xs text-money-400">${c.blendedCpm} CPM</span>
                       ) : (
                         <span className="text-xs text-subtle">on track</span>
                       )}
@@ -138,7 +180,7 @@ export default async function DashboardPage() {
           )}
         </Panel>
 
-        {/* 4. Needs attention — dormant, stale, low-confidence, underdelivering */}
+        {/* 5. Needs attention — underdelivering, falling, low-confidence, dormant */}
         <Panel title="Needs attention" href="/leaderboard?direction=falling" cta="Review →">
           {attention.length === 0 ? (
             <div className="py-6 text-center text-sm text-subtle">Nothing needs attention. 🎉</div>
@@ -150,6 +192,24 @@ export default async function DashboardPage() {
             </ul>
           )}
         </Panel>
+
+        {/* 6. Planner cross-link */}
+        <Card className="relative flex flex-col justify-center overflow-hidden p-5">
+          <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-money/60 via-money/20 to-transparent" />
+          <h2 className="text-sm font-semibold text-fg">Plan a budget</h2>
+          <p className="mt-1 max-w-md text-sm text-subtle">
+            Give the planner a budget, a format, and a niche — it allocates across the roster by
+            expected views per dollar and saves the slate as a shortlist.
+          </p>
+          <div className="mt-4">
+            <Link
+              href="/planner"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-money-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-money"
+            >
+              Open planner →
+            </Link>
+          </div>
+        </Card>
       </div>
 
       <div className="mt-6">
@@ -164,28 +224,33 @@ function StatStrip({
   tracked,
   active,
   dormant,
+  priced,
   lastPoll,
 }: {
   tracked: number;
   active: number;
   dormant: number;
+  priced: number;
   lastPoll: string;
 }) {
   const cells = [
     { lab: "Tracked", val: String(tracked) },
     { lab: "Active", val: String(active) },
     { lab: "Dormant", val: String(dormant) },
+    { lab: "Priced", val: String(priced), money: true },
     { lab: "Last poll", val: lastPoll },
   ];
   return (
-    <Card className="flex items-stretch p-0">
+    <Card className="flex items-stretch overflow-x-auto p-0">
       {cells.map((c, i) => (
         <div
           key={c.lab}
           className={`flex flex-1 flex-col gap-0.5 px-5 py-3 ${i > 0 ? "border-l border-line-soft" : ""}`}
         >
           <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-subtle">{c.lab}</span>
-          <span className="font-mono text-lg font-medium tabular-nums text-fg">{c.val}</span>
+          <span className={`font-mono text-lg font-medium tabular-nums ${c.money ? "text-money-400" : "text-fg"}`}>
+            {c.val}
+          </span>
         </div>
       ))}
     </Card>
@@ -239,13 +304,13 @@ function MoverGroup({
         <ul>
           {rows.map((r) => (
             <li key={r.accountId}>
-              <Link href={`/influencer/${r.username}`} className="flex items-center gap-3 rounded-lg p-1.5 hover:bg-surface-2">
+              <Link href={`/influencer/${r.username}`} className="flex items-center gap-3 rounded-lg p-1.5 transition-colors hover:bg-surface-2">
                 <Avatar src={r.profilePicture} alt={r.username} size={24} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm text-fg">{r.displayName ?? r.username}</div>
                 </div>
                 <Sparkline values={r.viewsSparkline} />
-                <div className={`w-14 text-right text-sm font-semibold ${tone === "up" ? "text-pos" : "text-neg"}`}>
+                <div className={`w-14 text-right font-mono text-sm font-semibold tabular-nums ${tone === "up" ? "text-pos" : "text-neg"}`}>
                   {formatSignedPct(r.wowViewsPct)}
                 </div>
               </Link>
@@ -262,7 +327,7 @@ const SEV_COLOR = { high: "red", medium: "amber", low: "slate" } as const;
 function AttentionRow({ item }: { item: AttentionItem }) {
   return (
     <li>
-      <Link href={item.href} className="flex items-center gap-3 rounded-lg p-2 hover:bg-surface-2">
+      <Link href={item.href} className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-surface-2">
         <Avatar src={item.profilePicture} alt={item.username} size={24} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium text-fg">{item.title}</div>

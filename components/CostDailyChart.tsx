@@ -2,6 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { DayCost } from "@/lib/cost-summary";
+import { TOOLTIP_STYLE } from "./InfluencerCharts";
 import { formatCredits, formatNumber } from "@/lib/format";
 
 export function CostDailyChart({ data }: { data: DayCost[] }) {
@@ -12,7 +13,7 @@ export function CostDailyChart({ data }: { data: DayCost[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#23272F" vertical={false} />
         <XAxis dataKey="date" tickFormatter={tick} minTickGap={16} tick={{ fontSize: 11 }} />
         <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} />
-        <Tooltip formatter={(v: number) => formatCredits(v)} labelFormatter={(l) => `Day ${l}`} />
+        <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: "rgba(124,109,247,0.08)" }} formatter={(v: number) => formatCredits(v)} labelFormatter={(l) => `Day ${l}`} />
         <Bar dataKey="credits" fill="#7C6DF7" radius={[3, 3, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>

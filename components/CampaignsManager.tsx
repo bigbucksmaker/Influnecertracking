@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CampaignSummary } from "@/lib/placements";
 import { Card, Badge } from "./ui";
-import { formatNumber, formatRatio, relativeTime } from "@/lib/format";
+import { formatNumber, formatRatio, formatUsd, relativeTime } from "@/lib/format";
 
 export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }) {
   const router = useRouter();
@@ -104,6 +104,10 @@ export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }
               <th className="px-3 py-2 text-right" title="Median delivery vs each creator's organic median">
                 Median delivery
               </th>
+              <th className="px-3 py-2 text-right" title="Σ placement prices">Spend</th>
+              <th className="px-3 py-2 text-right" title="Spend ÷ delivered views of priced placements × 1K">
+                Actual CPM
+              </th>
               <th className="px-3 py-2 text-right">Underdelivering</th>
               <th className="px-3 py-2 text-right">Created</th>
             </tr>
@@ -131,6 +135,16 @@ export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }
                   {formatRatio(c.medianDeliveryRatio)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
+                  {c.totalSpendUsd > 0 ? formatUsd(c.totalSpendUsd) : <span className="text-subtle">—</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {c.blendedCpm != null ? (
+                    <span className="text-money-400">${c.blendedCpm}</span>
+                  ) : (
+                    <span className="text-subtle">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
                   {c.underdeliverCount > 0 ? (
                     <Badge color="red">{c.underdeliverCount}</Badge>
                   ) : (
@@ -142,7 +156,7 @@ export function CampaignsManager({ campaigns }: { campaigns: CampaignSummary[] }
             ))}
             {campaigns.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-subtle">
+                <td colSpan={10} className="px-3 py-10 text-center text-subtle">
                   No campaigns yet. Create one above, then attach commissioned tweets to measure
                   delivery against each creator&apos;s organic baseline.
                 </td>

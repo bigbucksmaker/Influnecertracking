@@ -11,7 +11,14 @@ export const maxDuration = 60; // headroom for Neon cold-starts (see lib/db.ts r
 export default async function LeaderboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ direction?: string; tier?: string; rising?: string; q?: string; tag?: string }>;
+  searchParams: Promise<{
+    direction?: string;
+    tier?: string;
+    rising?: string;
+    q?: string;
+    tag?: string;
+    preset?: string;
+  }>;
 }) {
   const [settings, rows, tags, sp] = await Promise.all([
     getSettings(),
@@ -25,6 +32,7 @@ export default async function LeaderboardPage({
     rising: sp.rising === "1" || sp.rising === "true",
     q: sp.q ?? "",
     tag: sp.tag ?? "",
+    preset: ["performance", "value", "rising", "falling"].includes(sp.preset ?? "") ? sp.preset! : "",
   };
 
   if (rows.length === 0) {
@@ -46,7 +54,7 @@ export default async function LeaderboardPage({
     <>
       <PageHeader
         title="Leaderboard"
-        description={`Performance Score = ${reachPct}% median reach + ${engPct}% engagement rate, ${settings.normalization}-normalized over the trailing 7 days. Sort or filter by any column.`}
+        description={`Performance Score = ${reachPct}% median reach + ${engPct}% engagement rate, ${settings.normalization}-normalized over the trailing 7 days. Value Score = views & engagement per dollar. Sort or filter by any column.`}
         actions={
           <Link href="/settings" className="text-sm text-accent-400 hover:underline">
             Adjust weights →

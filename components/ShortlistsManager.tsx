@@ -4,8 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ShortlistView, ShortlistItemView } from "@/lib/shortlists";
-import { Card, Badge, Avatar } from "./ui";
-import { formatNumber, formatPct, relativeTime } from "@/lib/format";
+import { Card, Badge, Avatar, ScoreRing } from "./ui";
+import { formatNumber, formatPct, formatUsd } from "@/lib/format";
 
 interface CampaignOpt {
   id: string;
@@ -54,8 +54,8 @@ export function ShortlistsManager({
       <Card className="p-5">
         <h2 className="text-sm font-semibold text-fg">New shortlist</h2>
         <p className="mt-1 text-xs text-subtle">
-          Save candidate creators for a campaign. Metrics shown are reach, engagement, median &
-          consistency only — campaign rates are never included.
+          Save candidate creators for a campaign — each list prices itself: per-creator rates and
+          implied CPM, with slate totals (cost, expected views, blended CPM) in the footer.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="block">
@@ -202,6 +202,9 @@ function ShortlistCard({ shortlist }: { shortlist: ShortlistView }) {
               <th className="px-3 py-2 text-right">Median views</th>
               <th className="px-3 py-2 text-left">Steadiness</th>
               <th className="px-3 py-2 text-right">ER (impr.)</th>
+              <th className="px-3 py-2 text-right" title="Basis rate: quote tweet, falling back to post">Rate</th>
+              <th className="px-3 py-2 text-right" title="Implied $ per 1K median organic views">Est. CPM</th>
+              <th className="px-3 py-2 text-right" title="Value Score — views & engagement per dollar">Value</th>
               <th className="px-3 py-2 text-left">Note</th>
               <th className="px-3 py-2 text-right">Remove</th>
             </tr>
@@ -212,12 +215,33 @@ function ShortlistCard({ shortlist }: { shortlist: ShortlistView }) {
             ))}
             {shortlist.items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-subtle">
+                <td colSpan={11} className="px-3 py-6 text-center text-subtle">
                   No creators yet. Add by handle above, or use the ☆ button on the leaderboard.
                 </td>
               </tr>
             )}
           </tbody>
+          {shortlist.items.length > 0 && (
+            <tfoot>
+              <tr className="border-t border-line bg-surface-2/60">
+                <td className="px-3 py-2.5 text-xs text-subtle" colSpan={3}>
+                  Slate totals — {shortlist.totals.pricedCount} priced
+                  {shortlist.totals.unpricedCount > 0 && <> · {shortlist.totals.unpricedCount} unpriced</>}
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-muted">
+                  {formatNumber(shortlist.totals.expectedViews)} <span className="text-subtle">exp. views</span>
+                </td>
+                <td colSpan={2} />
+                <td className="px-3 py-2.5 text-right font-mono text-sm font-semibold tabular-nums text-money-400">
+                  {formatUsd(shortlist.totals.totalCost)}
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-money-400">
+                  {shortlist.totals.blendedCpm != null ? `$${shortlist.totals.blendedCpm} CPM` : "—"}
+                </td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </Card>
@@ -248,6 +272,22 @@ function ItemRow({ it, onRemove, busy }: { it: ShortlistItemView; onRemove: () =
       <td className="px-3 py-2 text-right tabular-nums">{formatNumber(it.medianViews)}</td>
       <td className="px-3 py-2">{steadiness(it.consistency)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{formatPct(it.erImpressions)}</td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {it.basisRate != null ? (
+          <span title={it.valueBasis === "post" ? "Post-rate basis (no QT rate)" : "Quote-tweet rate"}>
+            ${it.basisRate}
+            {it.valueBasis === "post" && <span className="ml-0.5 text-[10px] text-subtle">p</span>}
+          </span>
+        ) : (
+          <span className="text-subtle">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {it.cpm != null ? <span className="text-money-400">${it.cpm}</span> : <span className="text-subtle">—</span>}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <ScoreRing score={it.valueScore} size={26} kind="value" dim={it.lowConfidence} />
+      </td>
       <td className="px-3 py-2 text-subtle">{it.note ?? ""}</td>
       <td className="px-3 py-2 text-right">
         <button onClick={onRemove} disabled={busy} className="text-xs text-neg hover:underline">
@@ -259,10 +299,10 @@ function ItemRow({ it, onRemove, busy }: { it: ShortlistItemView; onRemove: () =
 }
 
 function downloadCsv(shortlist: ShortlistView) {
-  // reach/engagement/median/consistency columns ONLY — no rate-derived columns.
   const headers = [
     "username", "displayName", "performanceScore", "followers",
-    "medianViews", "p25Views", "consistency", "erImpressions", "direction", "note",
+    "medianViews", "p25Views", "consistency", "erImpressions", "direction",
+    "rateQuoteTweet", "ratePost", "rateThread", "basisRate", "impliedCpm", "valueScore", "pricePosition", "note",
   ];
   const esc = (v: unknown) => {
     const s = v == null ? "" : String(v);
@@ -275,10 +315,17 @@ function downloadCsv(shortlist: ShortlistView) {
         it.username, it.displayName ?? "", it.performanceScore ?? "", it.currentFollowers ?? "",
         it.medianViews != null ? Math.round(it.medianViews) : "",
         it.p25Views != null ? Math.round(it.p25Views) : "",
-        it.consistency ?? "", it.erImpressions ?? "", it.direction ?? "", it.note ?? "",
+        it.consistency ?? "", it.erImpressions ?? "", it.direction ?? "",
+        it.rateQuoteTweet ?? "", it.ratePost ?? "", it.rateThread ?? "",
+        it.basisRate ?? "", it.cpm ?? "", it.valueScore ?? "", it.pricePosition ?? "", it.note ?? "",
       ].map(esc).join(","),
     );
   }
+  const t = shortlist.totals;
+  lines.push("");
+  lines.push(
+    `totals,,,,${t.expectedViews},,,,,,,,${t.totalCost},${t.blendedCpm ?? ""},,,"${t.pricedCount} priced / ${t.unpricedCount} unpriced"`,
+  );
   const blob = new Blob([lines.join("\n")], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

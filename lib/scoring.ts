@@ -1,6 +1,11 @@
 import { prisma } from "./db";
 import { getSettings } from "./settings";
+import { quantileSorted, summarizeViews, normalize, type ViewSummary } from "./stats";
+import { applyEconomics, type Economics } from "./value";
 import type { AppSettings } from "@prisma/client";
+
+// Stats helpers moved to lib/stats.ts; re-exported so existing imports keep working.
+export { quantileSorted, summarizeViews, normalize, type ViewSummary };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -8,7 +13,7 @@ export const RISING_THRESHOLD = 0.25; // +25% WoW flags a "rising" account
 
 export type Direction = "rising" | "falling" | "flat";
 
-export interface LeaderboardRow {
+export interface LeaderboardRow extends Economics {
   rank: number;
   accountId: string;
   username: string;
@@ -27,6 +32,7 @@ export interface LeaderboardRow {
   ratePost: number | null;
   rateRetweet: number | null;
   rateThread: number | null;
+  ratesUpdatedAt: string | null; // staleness hint for the value layer
   followerGrowth7d: number | null;
   followerGrowth7dPct: number | null;
   followerGrowth30d: number | null;
@@ -39,6 +45,7 @@ export interface LeaderboardRow {
   consistency: number | null; // IQR ÷ median; lower = steadier (null if <2 posts)
   totalViews7d: number;
   avgEngagements: number;
+  medianEng: number; // median engagements/post 7d — denominator for cost-per-eng
   erImpressions: number; // engagements ÷ impressions
   erFollowers: number; // engagements ÷ followers
 
@@ -61,70 +68,6 @@ export interface LeaderboardRow {
   reachNorm: number; // 0..100
   erNorm: number; // 0..100
   performanceScore: number; // 0..100
-}
-
-function clamp(x: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, x));
-}
-
-/** Linear-interpolated quantile (q in 0..1) of an ASC-sorted array. */
-export function quantileSorted(sorted: number[], q: number): number {
-  const n = sorted.length;
-  if (n === 0) return 0;
-  if (n === 1) return sorted[0];
-  const pos = (n - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
-}
-
-export interface ViewSummary {
-  mean: number;
-  median: number;
-  p25: number;
-  consistency: number | null; // IQR / median, or null when undefined/<2 posts
-}
-
-/** Robust summary of a set of per-post view counts. */
-export function summarizeViews(views: number[]): ViewSummary {
-  const n = views.length;
-  if (n === 0) return { mean: 0, median: 0, p25: 0, consistency: null };
-  const sorted = [...views].sort((a, b) => a - b);
-  const mean = sorted.reduce((s, v) => s + v, 0) / n;
-  const median = quantileSorted(sorted, 0.5);
-  const p25 = quantileSorted(sorted, 0.25);
-  const p75 = quantileSorted(sorted, 0.75);
-  const consistency = n >= 2 && median > 0 ? (p75 - p25) / median : null;
-  return { mean, median, p25, consistency };
-}
-
-function percentileRanks(values: number[]): number[] {
-  const n = values.length;
-  if (n === 0) return [];
-  if (n === 1) return [50];
-  return values.map((x) => {
-    let less = 0;
-    let eq = 0;
-    for (const v of values) {
-      if (v < x) less++;
-      else if (v === x) eq++;
-    }
-    return ((less + 0.5 * eq) / n) * 100;
-  });
-}
-
-function zScoreNorms(values: number[]): number[] {
-  const n = values.length;
-  if (n === 0) return [];
-  const mean = values.reduce((a, b) => a + b, 0) / n;
-  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
-  const std = Math.sqrt(variance);
-  return values.map((x) => (std > 0 ? clamp(((x - mean) / std + 3) / 6 * 100, 0, 100) : 50));
-}
-
-export function normalize(values: number[], method: string): number[] {
-  return method === "zscore" ? zScoreNorms(values) : percentileRanks(values);
 }
 
 /** Weekly-median views/post over the trailing `weeks` weeks (oldest → newest). */
@@ -235,7 +178,11 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
   const staleHours = settings.stalePollHours;
   const fallThresh = settings.fallingThreshold;
 
-  interface Interim extends Omit<LeaderboardRow, "rank" | "reachNorm" | "erNorm" | "performanceScore"> {}
+  interface Interim
+    extends Omit<
+      LeaderboardRow,
+      "rank" | "reachNorm" | "erNorm" | "performanceScore" | keyof Economics
+    > {}
   const interim: Interim[] = accounts.map((a) => {
     const latest = latestByAccount.get(a.id) ?? null;
     const currentFollowers = latest?.followers ?? null;
@@ -266,6 +213,7 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
     const medianViews = viewSummary.median;
     const p25Views = viewSummary.p25;
     const consistency = viewSummary.consistency;
+    const medianEng = summarizeViews(thisWeek.map((p) => p.engagements)).median;
 
     const avgEngagements = postCount7d > 0 ? totalEng7d / postCount7d : 0;
     const erImpressions = totalViews7d > 0 ? totalEng7d / totalViews7d : 0;
@@ -328,6 +276,7 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
       ratePost: a.ratePost,
       rateRetweet: a.rateRetweet,
       rateThread: a.rateThread,
+      ratesUpdatedAt: a.ratesUpdatedAt ? a.ratesUpdatedAt.toISOString() : null,
       followerGrowth7d,
       followerGrowth7dPct,
       followerGrowth30d,
@@ -339,6 +288,7 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
       consistency,
       totalViews7d,
       avgEngagements,
+      medianEng,
       erImpressions,
       erFollowers,
       postsInWindow,
@@ -362,7 +312,7 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
   const wReach = wSum > 0 ? settings.reachWeight / wSum : 0.5;
   const wEng = wSum > 0 ? settings.engagementWeight / wSum : 0.5;
 
-  const scored: LeaderboardRow[] = interim.map((r, i) => {
+  const scored = interim.map((r, i) => {
     const reachNorm = reachNorms[i] ?? 0;
     const erNorm = erNorms[i] ?? 0;
     const performanceScore = Math.round((wReach * reachNorm + wEng * erNorm) * 10) / 10;
@@ -371,7 +321,10 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
 
   scored.sort((a, b) => b.performanceScore - a.performanceScore);
   scored.forEach((r, i) => (r.rank = i + 1));
-  return scored;
+
+  // Economics layer — implied CPMs, Value Score, price-vs-peers. Sits on top of
+  // (and never inside) the Performance Score. See lib/value.ts.
+  return applyEconomics(scored);
 }
 
 /** Top movers by week-over-week views growth (for the dashboard). */

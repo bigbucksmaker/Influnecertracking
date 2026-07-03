@@ -8,11 +8,12 @@ import {
 } from "@/lib/cache";
 import { getAllTags } from "@/lib/accounts";
 import { topMovers, topDecliners, type LeaderboardRow } from "@/lib/scoring";
+import { buildPlan } from "@/lib/planner";
 import { runReadOnlySql, SqlGuardError } from "./sql";
 
 const norm = (u: string) => u.trim().replace(/^@/, "").toLowerCase();
 
-/** The fields worth handing the model — reach/engagement/median/confidence only, never rate math. */
+/** The fields worth handing the model — performance, confidence, AND economics. */
 function slimRow(r: LeaderboardRow) {
   return {
     rank: r.rank,
@@ -34,11 +35,21 @@ function slimRow(r: LeaderboardRow) {
     performanceScore: r.performanceScore,
     lowConfidence: r.lowConfidence,
     confidenceNotes: r.lowConfidenceReasons,
+    // Economics (see lib/value.ts — estimates from organic medians)
+    rateQuoteTweetUsd: r.rateQuoteTweet,
+    ratePostUsd: r.ratePost,
+    rateThreadUsd: r.rateThread,
+    impliedCpmUsd: r.valueBasis === "qt" ? r.cpmQuote : r.valueBasis === "post" ? r.cpmPost : null,
+    valueBasis: r.valueBasis,
+    valueScore: r.valueScore,
+    valueRank: r.valueRank,
+    pricePosition: r.pricePosition,
+    priceVsPeersPct: r.priceVsPeersPct,
     profileUrl: `/influencer/${r.username}`,
   };
 }
 
-const SORTABLE = ["performanceScore", "medianViews", "wowViewsPct", "erImpressions", "postCount7d", "currentFollowers"] as const;
+const SORTABLE = ["performanceScore", "valueScore", "medianViews", "wowViewsPct", "erImpressions", "postCount7d", "currentFollowers"] as const;
 
 export const assistantTools = {
   queryLeaderboard: tool({
@@ -47,15 +58,19 @@ export const assistantTools = {
     parameters: z.object({
       niche: z.string().optional().describe("Niche/tag to filter by, e.g. 'AI Agents & Productivity Tools'. Use listNiches to see options."),
       minMedianViews: z.number().optional(),
+      maxQtRateUsd: z.number().optional().describe("Only creators whose quote-tweet rate is at or under this USD amount."),
+      pricePosition: z.enum(["underpriced", "fair", "overpriced"]).optional(),
       direction: z.enum(["rising", "falling", "flat"]).optional(),
       tier: z.enum(["active", "dormant"]).optional(),
-      sortBy: z.enum(SORTABLE).optional().describe("Default performanceScore."),
+      sortBy: z.enum(SORTABLE).optional().describe("Default performanceScore. Use valueScore for best value-for-money."),
       limit: z.number().int().min(1).max(50).optional(),
     }),
-    execute: async ({ niche, minMedianViews, direction, tier, sortBy = "performanceScore", limit = 10 }) => {
+    execute: async ({ niche, minMedianViews, maxQtRateUsd, pricePosition, direction, tier, sortBy = "performanceScore", limit = 10 }) => {
       let rows = await cachedLeaderboard();
       if (niche) rows = rows.filter((r) => r.tags.some((t) => t.toLowerCase() === niche.toLowerCase()));
       if (typeof minMedianViews === "number") rows = rows.filter((r) => r.medianViews >= minMedianViews);
+      if (typeof maxQtRateUsd === "number") rows = rows.filter((r) => r.rateQuoteTweet != null && r.rateQuoteTweet <= maxQtRateUsd);
+      if (pricePosition) rows = rows.filter((r) => r.pricePosition === pricePosition);
       if (direction) rows = rows.filter((r) => r.direction === direction);
       if (tier) rows = rows.filter((r) => r.pollingTier === tier);
       const key = sortBy as keyof LeaderboardRow;
@@ -108,7 +123,8 @@ export const assistantTools = {
   }),
 
   listCampaigns: tool({
-    description: "List campaigns with delivery-vs-baseline roll-ups (no cost figures).",
+    description:
+      "List campaigns with delivery-vs-baseline roll-ups AND economics (total spend, blended actual CPM, cost per engagement).",
     parameters: z.object({}),
     execute: async () => ({ campaigns: await cachedCampaigns() }),
   }),
@@ -119,6 +135,23 @@ export const assistantTools = {
     execute: async () => ({
       shortlists: (await cachedShortlists()).map((s) => ({ id: s.id, name: s.name, items: s.items.length, campaign: s.campaignName })),
     }),
+  }),
+
+  planBudget: tool({
+    description:
+      "Build a budget allocation: given a USD budget and format (qt/post/thread), pick the slate of creators that maximises expected views per dollar (greedy on median organic views ÷ rate, one slot per creator). Returns picks with rates, expected views, blended CPM, and leftover budget. Read-only — nothing is booked.",
+    parameters: z.object({
+      budgetUsd: z.number().min(1),
+      format: z.enum(["qt", "post", "thread"]).describe("Which rate to buy at. qt = quote tweet (the roster's primary format)."),
+      niche: z.string().nullable().optional().describe("Restrict to one niche tag (use listNiches for options)."),
+      includeLowConfidence: z.boolean().optional().describe("Default false — thin/stale-data creators are excluded."),
+      minMedianViews: z.number().nullable().optional(),
+      maxCreators: z.number().int().min(1).max(100).nullable().optional(),
+    }),
+    execute: async (input) => {
+      const rows = await cachedLeaderboard();
+      return { plan: buildPlan(rows, input) };
+    },
   }),
 
   costSummary: tool({
