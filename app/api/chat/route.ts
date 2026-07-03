@@ -39,12 +39,19 @@ export async function POST(req: Request) {
     },
   });
 
+  // Token diet: the org's Anthropic tier caps input tokens/minute, and every
+  // internal step replays system prompt + tool schemas + history. Old messages
+  // (especially old tool results) are the biggest input-token hogs — send only
+  // the recent window. Slicing at UI-message boundaries keeps tool-call/result
+  // pairs intact (each assistant message carries its own invocations).
+  const recentMessages = Array.isArray(messages) ? messages.slice(-10) : messages;
+
   const result = streamText({
     model,
     system: SYSTEM_PROMPT,
-    messages: convertToCoreMessages(messages),
+    messages: convertToCoreMessages(recentMessages),
     tools: assistantTools,
-    maxSteps: 6,
+    maxSteps: 4,
     // Nothing is allowed to hang invisibly: if the provider or a tool stalls,
     // abort fires and the error surfaces in the widget instead of endless dots.
     abortSignal: AbortSignal.timeout(120_000),
@@ -56,7 +63,15 @@ export async function POST(req: Request) {
   return result.toDataStreamResponse({
     getErrorMessage: (error) => {
       console.error("[ask] stream error:", error);
-      return error instanceof Error ? error.message : String(error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/rate limit|rate_limit/i.test(msg)) {
+        return (
+          "Anthropic rate limit hit — the org's input-tokens-per-minute tier is low. " +
+          "Wait ~60s and retry. Permanent fix: add credits at console.anthropic.com → Settings → Limits to raise the tier. " +
+          `(${msg.slice(0, 180)})`
+        );
+      }
+      return msg;
     },
   });
 }

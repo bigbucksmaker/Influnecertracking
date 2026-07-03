@@ -150,7 +150,21 @@ export const assistantTools = {
     }),
     execute: async (input) => {
       const rows = await cachedLeaderboard();
-      return { plan: buildPlan(rows, input) };
+      const plan = buildPlan(rows, input);
+      // Token diet: cap the picks payload — the full slate lives on /planner.
+      const MAX_PICKS = 15;
+      return {
+        plan: {
+          ...plan,
+          picks: plan.picks.slice(0, MAX_PICKS),
+          picksShown: Math.min(plan.picks.length, MAX_PICKS),
+          totalPicks: plan.picks.length,
+          note:
+            plan.picks.length > MAX_PICKS
+              ? `Showing top ${MAX_PICKS} of ${plan.picks.length} picks — the full slate is on /planner.`
+              : undefined,
+        },
+      };
     },
   }),
 
