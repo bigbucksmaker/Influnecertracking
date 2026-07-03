@@ -7,9 +7,10 @@ import { clsx } from "clsx";
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -125,6 +126,20 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
     }
   }
 
+  async function setInterval_(intervalSec: number) {
+    setBusy(true);
+    try {
+      await fetch(`/api/live/${tracker.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ intervalSec }),
+      });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function remove() {
     if (!confirm("Delete this tracker? Collected snapshots on the post are kept.")) return;
     setBusy(true);
@@ -138,18 +153,22 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
 
   const latest = tracker.latest ?? (series.length ? series[series.length - 1] : null);
 
-  // Velocity series: per-tick deltas.
-  const velocity = useMemo(() => {
-    const out: { t: string; dViews: number; dEng: number }[] = [];
+  // Pulse series — the heartbeat. Per-tick deltas NORMALISED to a per-minute
+  // rate, so 30s panel ticks and 60s cron ticks read on the same scale.
+  const pulse = useMemo(() => {
+    const out: { t: string; viewsPerMin: number; engPerMin: number }[] = [];
     for (let i = 1; i < series.length; i++) {
+      const dtMin = (new Date(series[i].t).getTime() - new Date(series[i - 1].t).getTime()) / 60_000;
+      if (dtMin <= 0) continue;
       out.push({
         t: series[i].t,
-        dViews: Math.max(0, series[i].views - series[i - 1].views),
-        dEng: Math.max(0, series[i].engagements - series[i - 1].engagements),
+        viewsPerMin: Math.max(0, Math.round((series[i].views - series[i - 1].views) / dtMin)),
+        engPerMin: Math.max(0, Math.round(((series[i].engagements - series[i - 1].engagements) / dtMin) * 10) / 10),
       });
     }
-    return out.slice(-120);
+    return out.slice(-180);
   }, [series]);
+  const lastPulse = pulse.length ? pulse[pulse.length - 1] : null;
 
   const viewsPace5 = pace(series, "views", 5);
   const viewsPace15 = pace(series, "views", 15);
@@ -202,6 +221,25 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
             <span className={clsx("h-1.5 w-1.5 rounded-full", refreshing ? "animate-pulse-soft bg-accent" : "bg-line")} />
             {refreshing ? "refreshing" : live ? "auto 30s" : "paused"}
           </span>
+          <div className="flex overflow-hidden rounded-lg border border-line text-[11px]" title="How often the server fetches fresh metrics. 30s needs the panel open — the fallback cron ticks once a minute.">
+            {[
+              { sec: 30, label: "30s" },
+              { sec: 60, label: "60s" },
+              { sec: 120, label: "2m" },
+            ].map((o) => (
+              <button
+                key={o.sec}
+                onClick={() => setInterval_(o.sec)}
+                disabled={busy || !live}
+                className={clsx(
+                  "px-2.5 py-1.5 transition-colors disabled:opacity-50",
+                  tracker.intervalSec === o.sec ? "bg-pos-soft font-semibold text-pos" : "bg-surface text-muted hover:text-fg",
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => refresh()}
             disabled={refreshing}
@@ -269,14 +307,82 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
         </Card>
       </div>
 
-      {/* Charts */}
+      {/* Pulse — the heartbeat monitor (hero) */}
+      <Card className="relative overflow-hidden p-4">
+        <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-pos/60 via-pos/20 to-transparent" />
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-medium text-subtle">
+            <span className={clsx("h-1.5 w-1.5 rounded-full bg-pos", live && "animate-pulse-soft")} />
+            Pulse — views per minute
+            <span className="text-subtle/70">· teal line = engagements/min</span>
+          </div>
+          {lastPulse && (
+            <div className="font-mono text-lg font-semibold tabular-nums text-pos">
+              {formatNumber(lastPulse.viewsPerMin)}
+              <span className="ml-1 text-xs font-normal text-subtle">/min now</span>
+            </div>
+          )}
+        </div>
+        {pulse.length < 2 ? (
+          <EmptyChart />
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={pulse}>
+              <defs>
+                <linearGradient id="pulseFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#37C08A" stopOpacity={0.28} />
+                  <stop offset="100%" stopColor="#37C08A" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1A1D24" />
+              <XAxis dataKey="t" tickFormatter={hhmm} minTickGap={48} tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} />
+              <Tooltip
+                {...TOOLTIP_STYLE}
+                formatter={(v: number, name: string) => [
+                  formatNumber(v) + "/min",
+                  name === "viewsPerMin" ? "views" : "engagements",
+                ]}
+                labelFormatter={hhmm}
+              />
+              {/* Sharp linear segments — ECG, not a smoothed curve. */}
+              <Area
+                type="linear"
+                dataKey="viewsPerMin"
+                stroke="#37C08A"
+                strokeWidth={2}
+                fill="url(#pulseFill)"
+                isAnimationActive={false}
+                dot={false}
+              />
+              <Line
+                type="linear"
+                dataKey="engPerMin"
+                stroke="#2AC8B5"
+                strokeWidth={1.2}
+                strokeOpacity={0.75}
+                dot={false}
+                isAnimationActive={false}
+              />
+              {lastPulse && (
+                <>
+                  <ReferenceDot x={lastPulse.t} y={lastPulse.viewsPerMin} r={7} fill="rgba(55,192,138,0.25)" stroke="none" />
+                  <ReferenceDot x={lastPulse.t} y={lastPulse.viewsPerMin} r={3.5} fill="#37C08A" stroke="#07080A" strokeWidth={1.5} />
+                </>
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
+
+      {/* Cumulative charts */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <div className="mb-2 text-xs font-medium text-subtle">Views since tracking started</div>
           {series.length < 2 ? (
             <EmptyChart />
           ) : (
-            <ResponsiveContainer width="100%" height={230}>
+            <ResponsiveContainer width="100%" height={210}>
               <AreaChart data={series}>
                 <defs>
                   <linearGradient id="liveViews" x1="0" y1="0" x2="0" y2="1">
@@ -288,31 +394,31 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
                 <XAxis dataKey="t" tickFormatter={hhmm} minTickGap={40} tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
                 <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={hhmm} />
-                <Area type="monotone" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#liveViews)" />
+                <Area type="monotone" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#liveViews)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </Card>
 
         <Card className="p-4">
-          <div className="mb-2 text-xs font-medium text-subtle">Velocity — new views per tick</div>
-          {velocity.length < 2 ? (
+          <div className="mb-2 text-xs font-medium text-subtle">Engagements since tracking started</div>
+          {series.length < 2 ? (
             <EmptyChart />
           ) : (
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart data={velocity}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#23272F" vertical={false} />
+            <ResponsiveContainer width="100%" height={210}>
+              <AreaChart data={series}>
+                <defs>
+                  <linearGradient id="liveEng" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2AC8B5" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#2AC8B5" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
                 <XAxis dataKey="t" tickFormatter={hhmm} minTickGap={40} tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} />
-                <Tooltip
-                  {...TOOLTIP_STYLE}
-                  cursor={{ fill: "rgba(124,109,247,0.08)" }}
-                  formatter={(v: number, name: string) => [formatNumber(v), name === "dViews" ? "new views" : "new engagements"]}
-                  labelFormatter={hhmm}
-                />
-                <Bar dataKey="dViews" fill="#7C6DF7" radius={[2, 2, 0, 0]} maxBarSize={14} />
-                <Bar dataKey="dEng" fill="#2AC8B5" radius={[2, 2, 0, 0]} maxBarSize={14} />
-              </BarChart>
+                <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={hhmm} />
+                <Area type="monotone" dataKey="engagements" stroke="#2AC8B5" strokeWidth={2} fill="url(#liveEng)" isAnimationActive={false} />
+              </AreaChart>
             </ResponsiveContainer>
           )}
         </Card>

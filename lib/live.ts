@@ -179,6 +179,14 @@ export async function setTrackerStatus(id: string, status: "live" | "stopped"): 
   });
 }
 
+/** Change the fetch cadence of a running tracker (floor 30s). */
+export async function setTrackerInterval(id: string, intervalSec: number): Promise<void> {
+  await prisma.liveTracker.update({
+    where: { id },
+    data: { intervalSec: Math.min(3600, Math.max(MIN_INTERVAL_SEC, Math.round(intervalSec))) },
+  });
+}
+
 export async function deleteTracker(id: string): Promise<void> {
   await prisma.liveTracker.delete({ where: { id } }).catch(() => null);
 }

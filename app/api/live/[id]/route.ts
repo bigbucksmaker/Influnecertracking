@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
-import { getTrackerPayload, setTrackerStatus, deleteTracker } from "@/lib/live";
+import { getTrackerPayload, setTrackerStatus, setTrackerInterval, deleteTracker } from "@/lib/live";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,11 +19,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const gate = await requireUser();
   if ("error" in gate) return gate.error;
   const { id } = await params;
-  const body = (await req.json().catch(() => ({}))) as { status?: string };
-  if (body.status !== "live" && body.status !== "stopped") {
-    return NextResponse.json({ error: "status must be live or stopped" }, { status: 400 });
+  const body = (await req.json().catch(() => ({}))) as { status?: string; intervalSec?: number };
+
+  let changed = false;
+  if (body.status === "live" || body.status === "stopped") {
+    await setTrackerStatus(id, body.status);
+    changed = true;
   }
-  await setTrackerStatus(id, body.status);
+  if (typeof body.intervalSec === "number" && Number.isFinite(body.intervalSec)) {
+    if (body.intervalSec < 30 || body.intervalSec > 3600) {
+      return NextResponse.json({ error: "intervalSec must be 30–3600" }, { status: 400 });
+    }
+    await setTrackerInterval(id, body.intervalSec);
+    changed = true;
+  }
+  if (!changed) {
+    return NextResponse.json({ error: "Provide status (live|stopped) and/or intervalSec" }, { status: 400 });
+  }
   return NextResponse.json({ ok: true });
 }
 

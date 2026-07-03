@@ -27,6 +27,7 @@ export function LiveTrackersManager({
   const [tweet, setTweet] = useState("");
   const [label, setLabel] = useState("");
   const [campaignId, setCampaignId] = useState("");
+  const [intervalSec, setIntervalSec] = useState("30");
   const [maxHours, setMaxHours] = useState("24");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -46,6 +47,7 @@ export function LiveTrackersManager({
           tweet,
           label: label || null,
           campaignId: campaignId || null,
+          intervalSec: Number(intervalSec) || 30,
           maxDurationMin: maxHours ? Math.round(Number(maxHours) * 60) : null,
         }),
       });
@@ -89,6 +91,16 @@ export function LiveTrackersManager({
               {campaigns.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-subtle" title="30s ticks need the panel open; the fallback cron runs once a minute">
+              Tick rate
+            </span>
+            <select value={intervalSec} onChange={(e) => setIntervalSec(e.target.value)} className={clsx(CONTROL, "mt-1 block")}>
+              <option value="30">Every 30s (panel open)</option>
+              <option value="60">Every 60s</option>
+              <option value="120">Every 2 min</option>
             </select>
           </label>
           <label className="block">
