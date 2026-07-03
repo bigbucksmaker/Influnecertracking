@@ -24,6 +24,20 @@ import { formatNumber, formatPct } from "@/lib/format";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Shared dark tooltip chrome for every Recharts tooltip in the app. */
+export const TOOLTIP_STYLE = {
+  contentStyle: {
+    background: "rgba(22, 25, 34, 0.96)",
+    border: "1px solid #232833",
+    borderRadius: 10,
+    boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
+    fontSize: 12,
+    color: "#EDEFF3",
+  },
+  labelStyle: { color: "#9AA1AD", fontSize: 11 },
+  itemStyle: { color: "#EDEFF3" },
+} as const;
+
 export function InfluencerCharts({
   followerSeries,
   reachSeries,
@@ -75,7 +89,7 @@ export function InfluencerCharts({
             <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
             <XAxis dataKey="t" tickFormatter={tick} minTickGap={24} tick={{ fontSize: 11 }} />
             <YAxis tickFormatter={(v) => formatNumber(v)} width={44} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
-            <Tooltip formatter={(v: number) => formatNumber(v)} labelFormatter={tick} />
+            <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={tick} />
             <Line type="monotone" dataKey="followers" stroke="#7C6DF7" strokeWidth={2} dot={false} />
           </LineChart>
         </ChartCard>
@@ -91,7 +105,7 @@ export function InfluencerCharts({
             <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
             <XAxis dataKey="t" tickFormatter={tick} minTickGap={24} tick={{ fontSize: 11 }} />
             <YAxis tickFormatter={(v) => formatNumber(v)} width={44} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => formatNumber(v)} labelFormatter={tick} />
+            <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={tick} />
             <Area type="monotone" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#views)" />
           </AreaChart>
         </ChartCard>
@@ -101,7 +115,7 @@ export function InfluencerCharts({
             <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
             <XAxis dataKey="t" tickFormatter={tick} minTickGap={24} tick={{ fontSize: 11 }} />
             <YAxis tickFormatter={(v) => formatPct(v, 0)} width={44} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => formatPct(v)} labelFormatter={tick} />
+            <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatPct(v)} labelFormatter={tick} />
             <Line type="monotone" dataKey="engagementRate" stroke="#37C08A" strokeWidth={2} dot={false} />
           </LineChart>
         </ChartCard>
@@ -171,6 +185,7 @@ function ViewDistributionChart({ distribution }: { distribution?: ViewDistributi
               tick={{ fontSize: 11 }}
             />
             <Tooltip
+              {...TOOLTIP_STYLE}
               cursor={{ strokeDasharray: "3 3" }}
               formatter={(v: number, name: string) =>
                 name === "views" ? formatNumber(v) : `${Math.round(v)}d ago`

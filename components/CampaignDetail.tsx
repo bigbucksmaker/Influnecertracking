@@ -141,8 +141,8 @@ export function CampaignDetail({
         </div>
       </div>
 
-      {/* Roll-up — reach & engagement only, never price */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      {/* Roll-up — delivery (price-free) + economics (actuals) */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Placements" value={campaign.placementCount} sub={`${campaign.linkedCount} linked`} />
         <StatCard label="Views delivered" value={formatNumber(campaign.totalViews)} />
         <StatCard label="Engagements" value={formatNumber(campaign.totalEngagements)} />
@@ -161,6 +161,24 @@ export function CampaignDetail({
           }
         />
         <StatCard
+          label="Spend"
+          value={campaign.totalSpendUsd > 0 ? formatUsd(campaign.totalSpendUsd) : "—"}
+          sub={`${campaign.pricedCount} priced placement${campaign.pricedCount === 1 ? "" : "s"}`}
+          accent="money"
+        />
+        <StatCard
+          label="Actual CPM"
+          value={campaign.blendedCpm != null ? `$${campaign.blendedCpm}` : "—"}
+          sub="spend ÷ delivered views × 1K"
+          accent="money"
+        />
+        <StatCard
+          label="Cost / engagement"
+          value={campaign.costPerEngagement != null ? formatUsd(campaign.costPerEngagement) : "—"}
+          sub="priced placements only"
+          accent="money"
+        />
+        <StatCard
           label="Underdelivering"
           value={campaign.underdeliverCount}
           sub={`< ${formatRatio(underdeliverThreshold)} of baseline`}
@@ -172,8 +190,8 @@ export function CampaignDetail({
       <Card className="p-5">
         <h2 className="text-sm font-semibold text-fg">Attach a commissioned post</h2>
         <p className="mt-1 text-xs text-subtle">
-          Paste the tweet URL or id. It&apos;s ingested once and tracked on an extended window. Price
-          is stored for reference only and is never used in any delivery metric.
+          Paste the tweet URL or id. It&apos;s ingested once and tracked on an extended window.
+          Delivery ratios stay price-free; the price powers spend and actual-CPM economics.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="block flex-1">
@@ -200,7 +218,7 @@ export function CampaignDetail({
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-subtle">Price USD (ref only)</span>
+            <span className="text-xs text-subtle">Price USD</span>
             <input
               type="number"
               min={0}
@@ -280,8 +298,9 @@ export function CampaignDetail({
               <th className="px-3 py-2 text-right" title="Views ÷ the creator's organic median">
                 Delivery
               </th>
-              <th className="px-3 py-2 text-right" title="Reference only — never used in any metric">
-                Price (ref)
+              <th className="px-3 py-2 text-right">Price</th>
+              <th className="px-3 py-2 text-right" title="Price ÷ delivered views × 1K">
+                Actual CPM
               </th>
               <th className="px-3 py-2 text-right">Remove</th>
             </tr>
@@ -292,7 +311,7 @@ export function CampaignDetail({
             ))}
             {campaign.placements.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-subtle">
+                <td colSpan={9} className="px-3 py-10 text-center text-subtle">
                   No placements yet. Attach a commissioned tweet above.
                 </td>
               </tr>
@@ -357,8 +376,17 @@ function PlacementRow({ p, onRemove, busy }: { p: PlacementDetail; onRemove: () 
           </span>
         )}
       </td>
-      <td className="px-3 py-2 text-right tabular-nums text-subtle">
-        {p.priceUsd != null ? formatUsd(p.priceUsd) : "—"}
+      <td className="px-3 py-2 text-right tabular-nums">
+        {p.priceUsd != null ? formatUsd(p.priceUsd) : <span className="text-subtle">—</span>}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {p.actualCpm != null ? (
+          <span className="text-money-400" title={p.costPerEng != null ? `${formatUsd(p.costPerEng)} per engagement` : undefined}>
+            ${p.actualCpm}
+          </span>
+        ) : (
+          <span className="text-subtle">—</span>
+        )}
       </td>
       <td className="px-3 py-2 text-right">
         <button onClick={onRemove} disabled={busy} className="text-xs text-neg hover:underline">

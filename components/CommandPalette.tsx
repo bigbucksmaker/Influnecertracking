@@ -19,6 +19,7 @@ type Item = {
 
 const NAV: { label: string; href: string }[] = [
   { label: "Open Leaderboard", href: "/leaderboard" },
+  { label: "Open Planner", href: "/planner" },
   { label: "Open Campaigns", href: "/campaigns" },
   { label: "Open Shortlists", href: "/shortlists" },
   { label: "Open Watchlist", href: "/accounts" },
@@ -27,7 +28,16 @@ const NAV: { label: string; href: string }[] = [
   { label: "Open Settings", href: "/settings" },
 ];
 
-export function CommandPalette({ creators, campaigns }: { creators: Creator[]; campaigns: Campaign[] }) {
+export function CommandPalette({
+  creators,
+  campaigns,
+  variant = "bar",
+}: {
+  creators: Creator[];
+  campaigns: Campaign[];
+  /** "bar" = full-width dashboard trigger · "nav" = compact sidebar trigger */
+  variant?: "bar" | "nav";
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -136,18 +146,32 @@ export function CommandPalette({ creators, campaigns }: { creators: Creator[]; c
 
   return (
     <>
-      {/* Trigger — pinned at the top of the dashboard */}
-      <button
-        onClick={() => setOpen(true)}
-        className="mb-5 flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left text-sm text-subtle transition-colors hover:border-accent/50 hover:bg-surface-2"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" className="h-4 w-4 shrink-0">
-          <circle cx="11" cy="11" r="7" />
-          <line x1="21" y1="21" x2="16.5" y2="16.5" />
-        </svg>
-        Search creators, campaigns, actions…
-        <kbd className="ml-auto rounded-md border border-line px-1.5 py-0.5 font-mono text-[10.5px] text-subtle">⌘K</kbd>
-      </button>
+      {/* Trigger — full bar (dashboard) or compact sidebar row (global nav) */}
+      {variant === "bar" ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="mb-5 flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left text-sm text-subtle transition-colors hover:border-accent/50 hover:bg-surface-2"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" className="h-4 w-4 shrink-0">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.5" y2="16.5" />
+          </svg>
+          Search creators, campaigns, actions…
+          <kbd className="ml-auto rounded-md border border-line px-1.5 py-0.5 font-mono text-[10.5px] text-subtle">⌘K</kbd>
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-2/60 px-2.5 py-1.5 text-left text-[12.5px] text-subtle transition-colors hover:border-accent/40 hover:text-muted"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" className="h-3.5 w-3.5 shrink-0">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.5" y2="16.5" />
+          </svg>
+          Search
+          <kbd className="ml-auto rounded border border-line px-1 py-px font-mono text-[9.5px] text-subtle">⌘K</kbd>
+        </button>
+      )}
 
       {open && (
         <div

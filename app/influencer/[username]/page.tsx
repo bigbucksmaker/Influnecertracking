@@ -3,6 +3,8 @@ import Link from "next/link";
 import { cachedInfluencerDetail, cachedLeaderboard } from "@/lib/cache";
 import { InfluencerCharts } from "@/components/InfluencerCharts";
 import { RemoveInfluencerButton } from "@/components/RemoveInfluencerButton";
+import { RateCard } from "@/components/RateCard";
+import { ratesAreStale } from "@/lib/value";
 import { Card, StatCard, Badge, Avatar } from "@/components/ui";
 import { formatNumber, formatFull, formatPct, formatSignedPct, relativeTime } from "@/lib/format";
 
@@ -22,6 +24,8 @@ export default async function InfluencerPage({
   const { account, followerSeries, reachSeries, recentPosts, distribution } = detail;
   const row = board.find((r) => r.accountId === account.id) ?? null;
   const directionLabel = row?.direction === "rising" ? "▲ rising" : row?.direction === "falling" ? "▼ falling" : "flat";
+  const pricedCount = board.filter((r) => r.valueScore != null).length;
+  const basisCpm = row?.valueBasis === "qt" ? row.cpmQuote : row?.valueBasis === "post" ? row.cpmPost : null;
 
   return (
     <>
@@ -83,11 +87,27 @@ export default async function InfluencerPage({
         </div>
       </Card>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Perf. Score"
           value={row ? row.performanceScore : "—"}
           sub={row ? `Rank #${row.rank}` : undefined}
+          accent="accent"
+        />
+        <StatCard
+          label="Value Score"
+          value={row?.valueScore ?? "—"}
+          sub={
+            row?.valueRank != null
+              ? `#${row.valueRank} of ${pricedCount} priced`
+              : "set rates to compute"
+          }
+          accent="money"
+        />
+        <StatCard
+          label="Median views"
+          value={formatNumber(row?.medianViews ?? 0)}
+          sub={row ? `p25 ${formatNumber(row.p25Views)} · trailing 7d` : "trailing 7d"}
         />
         <StatCard
           label="Followers"
@@ -95,13 +115,14 @@ export default async function InfluencerPage({
           sub={row?.followerGrowth7d != null ? `${formatSignedPct(row.followerGrowth7dPct)} 7d` : "—"}
           tone={row && row.followerGrowth7d != null && row.followerGrowth7d > 0 ? "good" : "default"}
         />
-        <StatCard
-          label="Median views"
-          value={formatNumber(row?.medianViews ?? 0)}
-          sub={row ? `p25 ${formatNumber(row.p25Views)} · trailing 7d` : "trailing 7d"}
-        />
         <StatCard label="ER (impr.)" value={formatPct(row?.erImpressions ?? 0)} sub="eng ÷ impressions" />
         <StatCard label="ER (foll.)" value={formatPct(row?.erFollowers ?? 0)} sub="eng ÷ followers" />
+        <StatCard
+          label="Est. CPM"
+          value={basisCpm != null ? `$${basisCpm}` : "—"}
+          sub={row?.valueBasis === "post" ? "post-rate basis" : row?.valueBasis === "qt" ? "QT-rate basis" : "needs a rate"}
+          accent="money"
+        />
         <StatCard
           label="WoW views"
           value={row ? formatSignedPct(row.wowViewsPct) : "—"}
@@ -111,6 +132,36 @@ export default async function InfluencerPage({
           }
         />
       </div>
+
+      {row && (
+        <div className="mt-4">
+          <RateCard
+            accountId={account.id}
+            username={account.username}
+            rates={{
+              rateQuoteTweet: row.rateQuoteTweet,
+              ratePost: row.ratePost,
+              rateRetweet: row.rateRetweet,
+              rateThread: row.rateThread,
+            }}
+            cpmQuote={row.cpmQuote}
+            cpmPost={row.cpmPost}
+            cpmThread={row.cpmThread}
+            costPerKEng={row.costPerKEng}
+            valueBasis={row.valueBasis}
+            valueScore={row.valueScore}
+            valueRank={row.valueRank}
+            pricedCount={pricedCount}
+            pricePosition={row.pricePosition}
+            priceVsPeersPct={row.priceVsPeersPct}
+            peerGroup={row.peerGroup}
+            peerCount={row.peerCount}
+            ratesUpdatedAt={row.ratesUpdatedAt}
+            ratesStale={ratesAreStale(row.ratesUpdatedAt)}
+            medianViews={row.medianViews}
+          />
+        </div>
+      )}
 
       <div className="mt-6">
         <InfluencerCharts
