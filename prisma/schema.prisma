@@ -216,9 +216,56 @@ model LiveTracker {
   post     Post        @relation(fields: [postId], references: [id], onDelete: Cascade)
   campaign Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   quotes   LiveQuote[]
+  reports  LaunchReport[]
+  impacts  QuoteImpact[]
 
   @@index([status])
   @@index([postId])
+}
+
+/// Measured inflection attributed to one quote tweet during a live-tracked
+/// launch: the main post's views/min pace before vs after the QT landed, and
+/// the excess views vs the pre-QT baseline. Accumulates across launches into
+/// per-creator amplification profiles — the tracker's long-term memory of
+/// "who actually moves the needle".
+model QuoteImpact {
+  id             String   @id @default(cuid())
+  trackerId      String
+  quoteTweetId   String
+  authorUsername String
+  isRoster       Boolean  @default(false)
+  qtPostedAt     DateTime
+  prePaceVpm     Float // views/min in the window before the QT
+  postPaceVpm    Float // views/min in the window after
+  upliftPct      Float? // (post − pre) ÷ pre; null when pre ≈ 0
+  excessViews    Int // views above the pre-pace baseline within the window
+  windowMin      Int // analysis window length (minutes)
+  contested      Boolean  @default(false) // another QT within ±5 min shares credit
+  createdAt      DateTime @default(now())
+
+  tracker LiveTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+
+  @@unique([trackerId, quoteTweetId])
+  @@index([authorUsername])
+}
+
+/// A generated launch recap — created on demand (button click), never
+/// automatically. statsJson holds the computed metrics; narrativeJson holds
+/// Claude's structured summary + recommendations (empty when unavailable).
+model LaunchReport {
+  id            String   @id @default(cuid())
+  trackerId     String
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  windowStart   DateTime
+  windowEnd     DateTime
+  headline      String   @default("")
+  statsJson     String   @default("{}")
+  narrativeJson String   @default("")
+
+  tracker LiveTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+
+  @@index([trackerId, createdAt])
 }
 
 /// A quote tweet discovered while live-tracking a post — the amplification

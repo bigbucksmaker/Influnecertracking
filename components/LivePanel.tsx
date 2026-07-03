@@ -130,6 +130,8 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reports, setReports] = useState<{ id: string; headline: string }[]>([]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { tracker, series, quotes, quoteTotals } = data;
@@ -208,6 +210,29 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
       router.push("/live");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Existing recaps (owner only) — surfaced as a link when present.
+  useEffect(() => {
+    if (isPublic) return;
+    fetch(`/api/live/${tracker.id}/report`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.reports && setReports(d.reports))
+      .catch(() => null);
+  }, [isPublic, tracker.id]);
+
+  async function generateReport() {
+    setReporting(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/live/${tracker.id}/report`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.reportId) throw new Error(d.error ?? "Report generation failed");
+      router.push(`/live/${tracker.id}/report/${d.reportId}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Report generation failed");
+      setReporting(false);
     }
   }
 
@@ -375,6 +400,23 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
           </button>
           {!isPublic && (
             <>
+              <button
+                onClick={generateReport}
+                disabled={reporting}
+                className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent-400 transition-colors hover:bg-accent-soft disabled:opacity-60"
+                title="Analyse the window so far: pace inflections attributed per quote tweet, amplifier track records, and a written recap. On demand only."
+              >
+                {reporting ? "Analysing…" : "⚡ Generate report"}
+              </button>
+              {reports.length > 0 && (
+                <Link
+                  href={`/live/${tracker.id}/report/${reports[0].id}`}
+                  className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition-colors hover:bg-surface-2"
+                  title={reports[0].headline}
+                >
+                  Reports ({reports.length})
+                </Link>
+              )}
               {tracker.shareToken ? (
                 <>
                   <button
