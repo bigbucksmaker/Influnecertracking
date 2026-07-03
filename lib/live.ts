@@ -31,7 +31,8 @@ import type { RawPostMetrics } from "./provider/types";
 import type { LiveTracker } from "@prisma/client";
 
 const MIN_INTERVAL_SEC = 5; // hard floor between provider fetches per tracker (realtime mode)
-const QUOTE_CHECK_SEC = 240; // discover new quote tweets every ~4 minutes
+const QUOTE_CHECK_SEC = 120; // discover quote tweets every ~2 min (also = QT kernel resolution)
+const ROSTER_KEEPALIVE_LIMIT = 19; // roster QTs refreshed per cycle when they scroll off search
 
 // ---------------------------------------------------------------------------
 // Read models
@@ -328,7 +329,13 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
   return { fetched: true, stopped: false };
 }
 
-/** Search for quote tweets of the tracked post and upsert them into the feed. */
+/**
+ * Search for quote tweets of the tracked post, upsert the feed, and record a
+ * LiveQuoteSnapshot for every QT observed — these snapshots are the exposure
+ * kernels the launch-report regression attributes inflections with. Roster
+ * QTs that have scrolled off the search page get a keep-alive batch read so
+ * their kernels stay alive for the whole launch.
+ */
 async function discoverQuotes(tracker: LiveTracker, accountId: string): Promise<void> {
   const provider = getProvider();
   const start = Date.now();
@@ -354,10 +361,21 @@ async function discoverQuotes(tracker: LiveTracker, accountId: string): Promise<
   const rosterSet = new Set(roster.map((a) => a.username));
 
   const capturedAt = new Date();
+  const seenIds = new Set<string>();
+  const snapshotRows: { trackerId: string; tweetId: string; capturedAt: Date; views: number; engagements: number }[] = [];
+
   for (const raw of page.data) {
     if (!raw.tweetId || raw.isRetweet) continue;
     const username = (raw.authorUsername ?? "").toLowerCase();
     if (!username) continue;
+    seenIds.add(raw.tweetId);
+    snapshotRows.push({
+      trackerId: tracker.id,
+      tweetId: raw.tweetId,
+      capturedAt,
+      views: raw.viewCount,
+      engagements: engagementsOf(raw),
+    });
     await prisma.liveQuote.upsert({
       where: { trackerId_tweetId: { trackerId: tracker.id, tweetId: raw.tweetId } },
       update: { ...rawToUpdate(raw), capturedAt },
@@ -375,6 +393,47 @@ async function discoverQuotes(tracker: LiveTracker, accountId: string): Promise<
         isRoster: rosterSet.has(username),
       },
     });
+  }
+
+  // Roster keep-alive: roster QTs no longer on the latest search page still
+  // need kernel points. One batched read, capped, roster-priority.
+  const staleRoster = await prisma.liveQuote.findMany({
+    where: { trackerId: tracker.id, isRoster: true, tweetId: { notIn: [...seenIds] } },
+    orderBy: { views: "desc" },
+    take: ROSTER_KEEPALIVE_LIMIT,
+    select: { tweetId: true },
+  });
+  if (staleRoster.length > 0) {
+    const t2 = Date.now();
+    try {
+      const res = await provider.getTweetsByIds(staleRoster.map((q) => q.tweetId));
+      await recordCost(res.cost, { accountId, purpose: "live_quotes", durationMs: Date.now() - t2 });
+      for (const raw of res.data) {
+        if (!raw.tweetId) continue;
+        snapshotRows.push({
+          trackerId: tracker.id,
+          tweetId: raw.tweetId,
+          capturedAt,
+          views: raw.viewCount,
+          engagements: engagementsOf(raw),
+        });
+        await prisma.liveQuote.updateMany({
+          where: { trackerId: tracker.id, tweetId: raw.tweetId },
+          data: { ...rawToUpdate(raw), capturedAt },
+        });
+      }
+    } catch (err) {
+      await recordError("tweets_by_ids", err, { accountId, purpose: "live_quotes", durationMs: Date.now() - t2 });
+    }
+  }
+
+  // Kernel points — best-effort so a lagging migration can't block discovery.
+  if (snapshotRows.length > 0) {
+    try {
+      await prisma.liveQuoteSnapshot.createMany({ data: snapshotRows, skipDuplicates: true });
+    } catch {
+      /* LiveQuoteSnapshot table may predate `prisma db push` */
+    }
   }
 
   await prisma.liveTracker.update({

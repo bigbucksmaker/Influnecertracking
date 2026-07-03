@@ -56,12 +56,46 @@ export function LaunchReportView({ report }: { report: ReportData }) {
         <StatCard label="Peak pace" value={`${formatNumber(stats.peakPaceVpm)}/min`} sub={stats.peakPaceAt ? `at ${hhmm(stats.peakPaceAt)}` : "—"} accent="accent" />
         <StatCard label="Quote tweets" value={stats.qtCount} sub={`${stats.rosterQtCount} from the roster`} />
         <StatCard
-          label="Roster excess views"
-          value={formatNumber(stats.rosterExcessViews)}
-          sub="above baseline in QT windows"
+          label="Roster attributed views"
+          value={formatNumber(stats.rosterAttributedViews)}
+          sub="regression-attributed to roster QTs"
           accent="money"
         />
       </div>
+
+      {/* Decomposition — where the views came from */}
+      {stats.attribution && (
+        <Card className="p-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 text-xs font-medium text-subtle">
+            <span>
+              Pace decomposition · v(t) = baseline + Σ βᵢ·kernelᵢ · fit R²{" "}
+              <b className={stats.attribution.r2 >= 0.4 ? "text-pos" : "text-warn"}>{stats.attribution.r2}</b>
+            </span>
+            <span>
+              kernels: {stats.attribution.realKernels} measured · {stats.attribution.syntheticKernels} shape-modelled
+            </span>
+          </div>
+          <div className="flex h-4 w-full overflow-hidden rounded-full bg-surface-2">
+            {(() => {
+              const a = stats.attribution;
+              const total = Math.max(1, a.baselineViews + a.excessViews);
+              const seg = (v: number) => `${Math.max(0, (v / total) * 100)}%`;
+              return (
+                <>
+                  <div className="h-full bg-accent-700/70" style={{ width: seg(a.baselineViews) }} title={`Organic baseline: ${formatNumber(a.baselineViews)}`} />
+                  <div className="h-full bg-money-600" style={{ width: seg(a.attributedViews) }} title={`QT-attributed: ${formatNumber(a.attributedViews)}`} />
+                  <div className="h-full bg-warn/60" style={{ width: seg(a.unattributedExcess) }} title={`Unattributed excess: ${formatNumber(a.unattributedExcess)}`} />
+                </>
+              );
+            })()}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-subtle">
+            <span><span className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-accent-700/70" />organic baseline {formatNumber(stats.attribution.baselineViews)}</span>
+            <span><span className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-money-600" />QT-attributed {formatNumber(stats.attribution.attributedViews)}</span>
+            <span><span className="mr-1.5 inline-block h-2 w-2 rounded-sm bg-warn/60" />unattributed excess {formatNumber(stats.attribution.unattributedExcess)}</span>
+          </div>
+        </Card>
+      )}
 
       {/* Narrative */}
       {narrative ? (
@@ -163,11 +197,11 @@ export function LaunchReportView({ report }: { report: ReportData }) {
                 <th className="px-3 py-2 text-left">Time</th>
                 <th className="px-3 py-2 text-left">Creator</th>
                 <th className="px-3 py-2 text-right">QT views</th>
-                <th className="px-3 py-2 text-right" title="Main-post views/min in the 10 min before">Pre pace</th>
-                <th className="px-3 py-2 text-right" title="Main-post views/min in the 15 min after">Post pace</th>
-                <th className="px-3 py-2 text-right">Uplift</th>
-                <th className="px-3 py-2 text-right" title="Views above the pre-QT baseline within 15 min">Excess views</th>
-                <th className="px-3 py-2 text-left">Flags</th>
+                <th className="px-3 py-2 text-right" title="Regression-attributed main-post views">Attributed</th>
+                <th className="px-3 py-2 text-right" title="Share of all attributed views">Share</th>
+                <th className="px-3 py-2 text-right" title="β — main-post views per view on this QT">Transfer</th>
+                <th className="px-3 py-2 text-right" title="Main-post pace around this QT's burst (10 min pre → 10 min post) — display context, attribution comes from the regression">Burst pace</th>
+                <th className="px-3 py-2 text-left">Method</th>
               </tr>
             </thead>
             <tbody>
@@ -181,29 +215,48 @@ export function LaunchReportView({ report }: { report: ReportData }) {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatNumber(i.qtViews)}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums text-subtle">{i.insufficientData ? "—" : `${formatNumber(i.prePaceVpm)}/m`}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{i.insufficientData ? "—" : `${formatNumber(i.postPaceVpm)}/m`}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
-                    {i.upliftPct == null ? (
-                      <span className="text-subtle">—</span>
-                    ) : (
-                      <span className={i.upliftPct > 0 ? "text-pos" : "text-neg"}>{formatSignedPct(i.upliftPct)}</span>
-                    )}
-                  </td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-money-400">
-                    {i.insufficientData ? "—" : formatNumber(i.excessViews)}
+                    {i.insufficientData ? "—" : formatNumber(i.attributedViews)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {i.creditShare == null ? <span className="text-subtle">—</span> : `${Math.round(i.creditShare * 100)}%`}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {i.transferRate == null ? <span className="text-subtle">—</span> : i.transferRate.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-subtle">
+                    {i.insufficientData ? "—" : (
+                      <>
+                        {formatNumber(i.prePaceVpm)}→{formatNumber(i.postPaceVpm)}/m
+                        {i.upliftPct != null && (
+                          <span className={i.upliftPct > 0 ? " text-pos" : " text-neg"}> {formatSignedPct(i.upliftPct)}</span>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td className="px-3 py-2">
-                    {i.contested && (
-                      <span title="Another QT landed within ±5 min — credit is shared">
-                        <Badge color="amber">contested</Badge>
-                      </span>
-                    )}
-                    {i.insufficientData && (
-                      <span title="Too few snapshots around this QT to measure">
-                        <Badge>no data</Badge>
-                      </span>
-                    )}
+                    <span className="flex flex-wrap items-center gap-1">
+                      {i.method === "regression" && (
+                        <span title={`Separable kernel (${i.kernel === "real" ? "measured QT series" : "modelled shape"})`}>
+                          <Badge color="green">regression</Badge>
+                        </span>
+                      )}
+                      {i.method === "cluster-split" && (
+                        <span title={`Burst of ${i.clusterSize} QTs within 90s — cluster attribution split by observed QT views`}>
+                          <Badge color="amber">burst ÷{i.clusterSize}</Badge>
+                        </span>
+                      )}
+                      {i.insufficientData && (
+                        <span title="Too little data to measure — never cited as impact">
+                          <Badge>no data</Badge>
+                        </span>
+                      )}
+                      {i.kernel === "synthetic" && !i.insufficientData && (
+                        <span title="Exposure kernel modelled (20-min half-life decay) — QT series too sparse">
+                          <Badge>modelled</Badge>
+                        </span>
+                      )}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -235,9 +288,9 @@ export function LaunchReportView({ report }: { report: ReportData }) {
                   <th className="px-3 py-2 text-left">Creator</th>
                   <th className="px-3 py-2 text-right">Launches</th>
                   <th className="px-3 py-2 text-right">QTs</th>
-                  <th className="px-3 py-2 text-right" title="Median pace uplift across clean (uncontested) measurements">Median uplift</th>
-                  <th className="px-3 py-2 text-right">Total excess views</th>
-                  <th className="px-3 py-2 text-right" title="Uncontested, measurable QTs">Clean n</th>
+                  <th className="px-3 py-2 text-right" title="Median β across launches — main-post views per view on their QT">Median transfer</th>
+                  <th className="px-3 py-2 text-right" title="Regression-attributed main-post views, all launches">Total attributed</th>
+                  <th className="px-3 py-2 text-right" title="QTs measured with a separable (regression) kernel">Clean n</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,9 +307,9 @@ export function LaunchReportView({ report }: { report: ReportData }) {
                     <td className="px-3 py-2 text-right tabular-nums">{p.launches}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{p.qts}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {p.medianUpliftPct == null ? <span className="text-subtle">—</span> : formatSignedPct(p.medianUpliftPct)}
+                      {p.medianTransferRate == null ? <span className="text-subtle">—</span> : p.medianTransferRate.toFixed(2)}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-money-400">{formatNumber(p.totalExcessViews)}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-money-400">{formatNumber(p.totalAttributedViews)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-subtle">{p.cleanMeasurements}</td>
                   </tr>
                 ))}

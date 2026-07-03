@@ -1,61 +1,47 @@
 // ---------------------------------------------------------------------------
-// Launch recap reports — on-demand (button click), with honest attribution.
+// Launch recap reports — on-demand (button click), with regression attribution.
 //
 // The intelligence, in three layers:
-//  1. MEASUREMENT (deterministic): for every quote tweet during a tracked
-//     launch, compare the main post's views/min pace in the window before the
-//     QT vs after it. Uplift% and excess views (actual − pre-pace baseline)
-//     are that QT's measured inflection. Windows containing other QTs are
-//     flagged `contested` — credit is shared, never double-claimed.
-//  2. MEMORY (accumulating): every measurement persists as a QuoteImpact row.
-//     Across launches these aggregate into per-creator amplification profiles
-//     ("@x has amplified 4 launches, median +38% pace, ~120K excess views") —
-//     the system genuinely learns who moves the needle.
-//  3. NARRATIVE (Claude): the computed stats + profiles go to Claude, which
-//     writes the executive summary, key moments, and recommendations. It
-//     narrates the maths; it never invents numbers. Reports degrade
-//     gracefully to stats-only when the model is unavailable.
+//  1. MEASUREMENT (lib/attribution.ts): the main post's pace curve is
+//     decomposed as v(t) = baseline(t) + Σ β_i·k_i(t). Each QT's exposure
+//     kernel k_i is its OWN view-pace series (LiveQuoteSnapshot) — or a
+//     calibrated decay shape when only one observation exists. Non-negative
+//     ridge regression yields β_i, the TRANSFER RATE (main-post views per QT
+//     view), and attributed views per QT. Burst QTs (≤90s apart) whose
+//     kernels are indistinguishable merge into a cluster column; the
+//     cluster's attribution splits by observed QT views — proportional,
+//     never double-counted.
+//  2. MEMORY: measurements persist as QuoteImpact rows and aggregate into
+//     cross-launch amplifier track records (median transfer rate, total
+//     attributed views) — the system learns who actually moves the needle.
+//  3. NARRATIVE (Claude): writes the recap FROM the measurements; it never
+//     invents numbers. Reports degrade to stats-only when unavailable.
 // ---------------------------------------------------------------------------
 
 import { prisma } from "./db";
 import { getAnthropic, NICHE_MODEL } from "./anthropic";
 import { median } from "./stats";
+import {
+  makeGrid,
+  paceOnGrid,
+  robustBaseline,
+  syntheticKernel,
+  nnlsRidge,
+  clusterByGap,
+  kernelMass,
+  type CumPoint,
+  type Grid,
+} from "./attribution";
 
 const MIN_MS = 60_000;
-const PRE_WINDOW_MIN = 10; // pace baseline before the QT
-const POST_WINDOW_MIN = 15; // impact window after the QT
-const CONTEST_MIN = 5; // another QT within ±5 min → contested
-const MIN_SPAN_MIN = 3; // need ≥3 min of snapshots per side to measure
-
-interface SnapPoint {
-  t: number; // ms
-  views: number;
-  engagements: number;
-}
+const CLUSTER_GAP_MS = 90_000; // QTs within 90s form one burst
+const REAL_KERNEL_MIN_POINTS = 3; // incl. the implicit zero at postedAt
+const REAL_KERNEL_MIN_SPAN_MIN = 4;
+const DISPLAY_WINDOW_MIN = 10; // cluster-level pre/post pace, for display only
 
 // ---------------------------------------------------------------------------
-// Measurement
+// Read models
 // ---------------------------------------------------------------------------
-
-function viewsAt(snaps: SnapPoint[], t: number): number | null {
-  let best: SnapPoint | null = null;
-  for (const s of snaps) {
-    if (s.t <= t) best = s;
-    else break;
-  }
-  return best ? best.views : null;
-}
-
-/** Average views/min between t0 and t1, from the stored snapshots. */
-function paceBetween(snaps: SnapPoint[], t0: number, t1: number): number | null {
-  const pts = snaps.filter((s) => s.t >= t0 && s.t <= t1);
-  if (pts.length < 2) return null;
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  const spanMin = (last.t - first.t) / MIN_MS;
-  if (spanMin < MIN_SPAN_MIN) return null;
-  return (last.views - first.views) / spanMin;
-}
 
 export interface QuoteImpactView {
   quoteTweetId: string;
@@ -63,107 +49,288 @@ export interface QuoteImpactView {
   isRoster: boolean;
   qtPostedAt: string;
   qtViews: number;
-  prePaceVpm: number;
+  attributedViews: number;
+  creditShare: number | null; // share of all attributed views (0..1)
+  transferRate: number | null; // main-post views per view on this QT
+  clusterId: string | null;
+  clusterSize: number;
+  method: "regression" | "cluster-split" | "window";
+  kernel: "real" | "synthetic";
+  prePaceVpm: number; // cluster-level, display only
   postPaceVpm: number;
   upliftPct: number | null;
-  excessViews: number;
   contested: boolean;
   insufficientData?: boolean;
 }
 
-/**
- * Compute (and persist) the measured inflection for every QT of a tracker.
- * Idempotent — re-running refreshes the rows.
- */
-export async function computeAttribution(trackerId: string): Promise<QuoteImpactView[]> {
+export interface AttributionSummary {
+  gridMinutes: number;
+  totalViewsGained: number;
+  baselineViews: number; // organic decay's share
+  excessViews: number; // above baseline
+  attributedViews: number; // regression-assigned to QTs
+  unattributedExcess: number; // surges no kernel explains
+  r2: number; // regression fit on the excess curve
+  realKernels: number;
+  syntheticKernels: number;
+}
+
+// ---------------------------------------------------------------------------
+// Attribution pipeline
+// ---------------------------------------------------------------------------
+
+export async function computeAttribution(trackerId: string): Promise<{
+  impacts: QuoteImpactView[];
+  summary: AttributionSummary | null;
+}> {
   const tracker = await prisma.liveTracker.findUnique({ where: { id: trackerId } });
-  if (!tracker) return [];
+  if (!tracker) return { impacts: [], summary: null };
+
+  const windowStart = tracker.startedAt.getTime() - 5 * MIN_MS;
+  const windowEnd = (tracker.stoppedAt ?? new Date()).getTime();
 
   const [snapsRaw, quotes] = await Promise.all([
     prisma.postSnapshot.findMany({
-      where: { postId: tracker.postId, capturedAt: { gte: new Date(tracker.startedAt.getTime() - 15 * MIN_MS) } },
+      where: { postId: tracker.postId, capturedAt: { gte: new Date(windowStart - 15 * MIN_MS), lte: new Date(windowEnd) } },
       orderBy: { capturedAt: "asc" },
-      select: { capturedAt: true, viewCount: true, engagements: true },
+      select: { capturedAt: true, viewCount: true },
     }),
     prisma.liveQuote.findMany({ where: { trackerId }, orderBy: { postedAt: "asc" } }),
   ]);
-  const snaps: SnapPoint[] = snapsRaw.map((s) => ({
-    t: s.capturedAt.getTime(),
-    views: s.viewCount,
-    engagements: s.engagements,
-  }));
 
-  const out: QuoteImpactView[] = [];
-  for (const q of quotes) {
-    const T = q.postedAt.getTime();
-    const prePace = paceBetween(snaps, T - PRE_WINDOW_MIN * MIN_MS, T);
-    const postPace = paceBetween(snaps, T, T + POST_WINDOW_MIN * MIN_MS);
-    const contested = quotes.some(
-      (o) => o.id !== q.id && Math.abs(o.postedAt.getTime() - T) <= CONTEST_MIN * MIN_MS,
-    );
+  let qtSnaps: { tweetId: string; capturedAt: Date; views: number }[] = [];
+  try {
+    qtSnaps = await prisma.liveQuoteSnapshot.findMany({
+      where: { trackerId },
+      orderBy: { capturedAt: "asc" },
+      select: { tweetId: true, capturedAt: true, views: true },
+    });
+  } catch {
+    /* table may predate migration — synthetic kernels take over */
+  }
+  const qtSnapsById = new Map<string, CumPoint[]>();
+  for (const s of qtSnaps) {
+    const arr = qtSnapsById.get(s.tweetId) ?? [];
+    arr.push({ t: s.capturedAt.getTime(), v: s.views });
+    qtSnapsById.set(s.tweetId, arr);
+  }
 
-    if (prePace == null || postPace == null) {
-      out.push({
-        quoteTweetId: q.tweetId,
-        authorUsername: q.authorUsername,
-        isRoster: q.isRoster,
-        qtPostedAt: q.postedAt.toISOString(),
-        qtViews: q.views,
-        prePaceVpm: prePace ?? 0,
-        postPaceVpm: postPace ?? 0,
-        upliftPct: null,
-        excessViews: 0,
-        contested,
-        insufficientData: true,
-      });
-      continue;
+  if (quotes.length === 0) return { impacts: [], summary: null };
+
+  const mainCum: CumPoint[] = snapsRaw.map((s) => ({ t: s.capturedAt.getTime(), v: s.viewCount }));
+  const grid: Grid = makeGrid(windowStart, windowEnd, MIN_MS);
+  const mainPace = paceOnGrid(mainCum, grid);
+  const coveredSteps = mainPace.filter((v) => v > 0).length;
+
+  // Too sparse to regress → every QT reported as insufficient, no fake numbers.
+  if (mainCum.length < 4 || coveredSteps < 8 || grid.steps < 10) {
+    const impacts = quotes.map((q) => emptyImpact(q, "window", true));
+    return { impacts, summary: null };
+  }
+
+  const { baseline } = robustBaseline(mainPace, 12);
+  const excess = mainPace.map((v, i) => Math.max(0, v - baseline[i]));
+
+  // --- Kernels & clustering -----------------------------------------------
+  const times = quotes.map((q) => q.postedAt.getTime());
+  const clusterIdx = clusterByGap(times, CLUSTER_GAP_MS);
+  const clusterSizes = new Map<number, number>();
+  for (const c of clusterIdx) clusterSizes.set(c, (clusterSizes.get(c) ?? 0) + 1);
+
+  interface Column {
+    kernel: number[];
+    members: number[]; // quote indices
+    real: boolean;
+    cluster: number;
+  }
+  const columns: Column[] = [];
+  const syntheticByCluster = new Map<number, number>(); // cluster → column idx
+  let realKernels = 0;
+  let syntheticKernels = 0;
+
+  quotes.forEach((q, qi) => {
+    const obs = [{ t: q.postedAt.getTime(), v: 0 }, ...(qtSnapsById.get(q.tweetId) ?? [])];
+    const spanMin = obs.length >= 2 ? (obs[obs.length - 1].t - obs[0].t) / MIN_MS : 0;
+    const isReal = obs.length >= REAL_KERNEL_MIN_POINTS && spanMin >= REAL_KERNEL_MIN_SPAN_MIN;
+    if (isReal) {
+      realKernels++;
+      columns.push({ kernel: paceOnGrid(obs, grid), members: [qi], real: true, cluster: clusterIdx[qi] });
+    } else {
+      syntheticKernels++;
+      const k = syntheticKernel(q.postedAt.getTime(), Math.max(q.views, 1), grid);
+      const existing = syntheticByCluster.get(clusterIdx[qi]);
+      if (existing != null) {
+        // Same-burst synthetic kernels are shape-identical — merge the column.
+        const col = columns[existing];
+        for (let i = 0; i < grid.steps; i++) col.kernel[i] += k[i];
+        col.members.push(qi);
+      } else {
+        syntheticByCluster.set(clusterIdx[qi], columns.length);
+        columns.push({ kernel: k, members: [qi], real: false, cluster: clusterIdx[qi] });
+      }
     }
+  });
 
-    const upliftPct = prePace > 1 ? (postPace - prePace) / prePace : null;
-    const v0 = viewsAt(snaps, T);
-    const v1 = viewsAt(snaps, T + POST_WINDOW_MIN * MIN_MS);
-    const excessViews =
-      v0 != null && v1 != null ? Math.max(0, Math.round(v1 - v0 - prePace * POST_WINDOW_MIN)) : 0;
+  const live = columns.filter((c) => kernelMass(c.kernel) > 0);
+  const { beta, r2 } = nnlsRidge(excess, live.map((c) => c.kernel));
 
-    const row = {
-      trackerId,
-      quoteTweetId: q.tweetId,
-      authorUsername: q.authorUsername,
-      isRoster: q.isRoster,
-      qtPostedAt: q.postedAt,
-      prePaceVpm: Math.round(prePace * 10) / 10,
-      postPaceVpm: Math.round(postPace * 10) / 10,
-      upliftPct: upliftPct != null ? Math.round(upliftPct * 1000) / 1000 : null,
-      excessViews,
-      windowMin: POST_WINDOW_MIN,
-      contested,
-    };
-    // Persist the measurement — this is the long-term memory. Best-effort so a
-    // lagging migration can't block report generation.
-    try {
-      await prisma.quoteImpact.upsert({
-        where: { trackerId_quoteTweetId: { trackerId, quoteTweetId: q.tweetId } },
-        update: row,
-        create: row,
+  // --- Per-quote allocation -------------------------------------------------
+  const perQuote = new Map<number, { attributed: number; transfer: number | null; method: QuoteImpactView["method"]; real: boolean }>();
+  live.forEach((col, j) => {
+    const mass = kernelMass(col.kernel);
+    const attributed = beta[j] * mass;
+    if (col.members.length === 1) {
+      perQuote.set(col.members[0], {
+        attributed,
+        transfer: beta[j],
+        method: col.real ? "regression" : clusterSizes.get(col.cluster)! > 1 ? "cluster-split" : "regression",
+        real: col.real,
       });
-    } catch {
-      /* QuoteImpact table may predate `prisma db push` */
+    } else {
+      // Merged burst column: split by observed QT views — proportional credit.
+      const totalViews = col.members.reduce((s, qi) => s + Math.max(1, quotes[qi].views), 0);
+      for (const qi of col.members) {
+        const w = Math.max(1, quotes[qi].views) / totalViews;
+        perQuote.set(qi, { attributed: attributed * w, transfer: beta[j], method: "cluster-split", real: false });
+      }
     }
+  });
 
-    out.push({
+  const totalAttributed = [...perQuote.values()].reduce((s, v) => s + v.attributed, 0);
+
+  // --- Cluster-level display pace ------------------------------------------
+  const clusterPace = new Map<number, { pre: number; post: number }>();
+  for (const [c] of clusterSizes) {
+    const members = quotes.filter((_, qi) => clusterIdx[qi] === c);
+    const startMs = Math.min(...members.map((q) => q.postedAt.getTime()));
+    const k0 = Math.floor((startMs - grid.t0) / grid.stepMs);
+    const pre = sliceMean(mainPace, k0 - DISPLAY_WINDOW_MIN, k0);
+    const post = sliceMean(mainPace, k0, k0 + DISPLAY_WINDOW_MIN);
+    clusterPace.set(c, { pre, post });
+  }
+
+  // --- Assemble + persist ----------------------------------------------------
+  const impacts: QuoteImpactView[] = [];
+  for (let qi = 0; qi < quotes.length; qi++) {
+    const q = quotes[qi];
+    const alloc = perQuote.get(qi);
+    const cp = clusterPace.get(clusterIdx[qi]) ?? { pre: 0, post: 0 };
+    const clusterSize = clusterSizes.get(clusterIdx[qi]) ?? 1;
+    const view: QuoteImpactView = {
       quoteTweetId: q.tweetId,
       authorUsername: q.authorUsername,
       isRoster: q.isRoster,
       qtPostedAt: q.postedAt.toISOString(),
       qtViews: q.views,
-      prePaceVpm: row.prePaceVpm,
-      postPaceVpm: row.postPaceVpm,
-      upliftPct: row.upliftPct,
-      excessViews,
-      contested,
-    });
+      attributedViews: Math.round(alloc?.attributed ?? 0),
+      creditShare:
+        alloc && totalAttributed > 0 ? Math.round((alloc.attributed / totalAttributed) * 1000) / 1000 : null,
+      transferRate: alloc?.transfer != null ? Math.round(alloc.transfer * 1000) / 1000 : null,
+      clusterId: `c${clusterIdx[qi]}`,
+      clusterSize,
+      method: alloc?.method ?? "window",
+      kernel: alloc?.real ? "real" : "synthetic",
+      prePaceVpm: Math.round(cp.pre * 10) / 10,
+      postPaceVpm: Math.round(cp.post * 10) / 10,
+      upliftPct: cp.pre > 1 ? Math.round(((cp.post - cp.pre) / cp.pre) * 1000) / 1000 : null,
+      contested: clusterSize > 1,
+      insufficientData: alloc == null,
+    };
+    impacts.push(view);
+
+    try {
+      await prisma.quoteImpact.upsert({
+        where: { trackerId_quoteTweetId: { trackerId, quoteTweetId: q.tweetId } },
+        update: impactRow(trackerId, q, view, grid),
+        create: impactRow(trackerId, q, view, grid),
+      });
+    } catch {
+      /* QuoteImpact table/columns may predate `prisma db push` */
+    }
   }
-  return out;
+
+  const totalViewsGained = mainPace.reduce((s, v) => s + v, 0);
+  const baselineViews = Math.min(
+    totalViewsGained,
+    Math.round(baseline.reduce((s, v) => s + v, 0)),
+  );
+  const excessTotal = Math.round(excess.reduce((s, v) => s + v, 0));
+
+  return {
+    impacts,
+    summary: {
+      gridMinutes: grid.steps,
+      totalViewsGained: Math.round(totalViewsGained),
+      baselineViews,
+      excessViews: excessTotal,
+      attributedViews: Math.round(totalAttributed),
+      unattributedExcess: Math.max(0, excessTotal - Math.round(totalAttributed)),
+      r2: Math.round(r2 * 1000) / 1000,
+      realKernels,
+      syntheticKernels,
+    },
+  };
+}
+
+function sliceMean(xs: number[], lo: number, hi: number): number {
+  const a = Math.max(0, lo);
+  const b = Math.min(xs.length, hi);
+  if (b <= a) return 0;
+  let s = 0;
+  for (let i = a; i < b; i++) s += xs[i];
+  return s / (b - a);
+}
+
+function emptyImpact(
+  q: { tweetId: string; authorUsername: string; isRoster: boolean; postedAt: Date; views: number },
+  method: QuoteImpactView["method"],
+  insufficient: boolean,
+): QuoteImpactView {
+  return {
+    quoteTweetId: q.tweetId,
+    authorUsername: q.authorUsername,
+    isRoster: q.isRoster,
+    qtPostedAt: q.postedAt.toISOString(),
+    qtViews: q.views,
+    attributedViews: 0,
+    creditShare: null,
+    transferRate: null,
+    clusterId: null,
+    clusterSize: 1,
+    method,
+    kernel: "synthetic",
+    prePaceVpm: 0,
+    postPaceVpm: 0,
+    upliftPct: null,
+    contested: false,
+    insufficientData: insufficient,
+  };
+}
+
+function impactRow(
+  trackerId: string,
+  q: { tweetId: string; authorUsername: string; isRoster: boolean; postedAt: Date },
+  v: QuoteImpactView,
+  grid: Grid,
+) {
+  return {
+    trackerId,
+    quoteTweetId: q.tweetId,
+    authorUsername: q.authorUsername,
+    isRoster: q.isRoster,
+    qtPostedAt: q.postedAt,
+    prePaceVpm: v.prePaceVpm,
+    postPaceVpm: v.postPaceVpm,
+    upliftPct: v.upliftPct,
+    excessViews: v.attributedViews, // legacy column carries the attributed figure
+    windowMin: grid.steps,
+    contested: v.contested,
+    attributedViews: v.attributedViews,
+    creditShare: v.creditShare,
+    transferRate: v.transferRate,
+    clusterId: v.clusterId,
+    method: v.method,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,11 +340,12 @@ export async function computeAttribution(trackerId: string): Promise<QuoteImpact
 export interface AmplifierProfile {
   username: string;
   isRoster: boolean;
-  launches: number; // distinct trackers this creator amplified
+  launches: number;
   qts: number;
-  medianUpliftPct: number | null;
-  totalExcessViews: number;
-  cleanMeasurements: number; // uncontested, measurable QTs
+  totalAttributedViews: number;
+  medianTransferRate: number | null; // main-post views per QT view
+  medianUpliftPct: number | null; // legacy display metric
+  cleanMeasurements: number;
 }
 
 export async function getAmplifierProfiles(usernames?: string[]): Promise<AmplifierProfile[]> {
@@ -187,7 +355,7 @@ export async function getAmplifierProfiles(usernames?: string[]): Promise<Amplif
       where: usernames?.length ? { authorUsername: { in: usernames } } : {},
     });
   } catch {
-    return []; // table not migrated yet
+    return [];
   }
   const byAuthor = new Map<string, typeof rows>();
   for (const r of rows) {
@@ -197,18 +365,20 @@ export async function getAmplifierProfiles(usernames?: string[]): Promise<Amplif
   }
   const out: AmplifierProfile[] = [];
   for (const [username, list] of byAuthor) {
-    const clean = list.filter((r) => !r.contested && r.upliftPct != null);
+    const transfers = list.map((r) => r.transferRate).filter((x): x is number => x != null);
+    const uplifts = list.filter((r) => !r.contested && r.upliftPct != null).map((r) => r.upliftPct as number);
     out.push({
       username,
       isRoster: list.some((r) => r.isRoster),
       launches: new Set(list.map((r) => r.trackerId)).size,
       qts: list.length,
-      medianUpliftPct: clean.length ? Math.round(median(clean.map((r) => r.upliftPct as number)) * 1000) / 1000 : null,
-      totalExcessViews: list.reduce((s, r) => s + r.excessViews, 0),
-      cleanMeasurements: clean.length,
+      totalAttributedViews: list.reduce((s, r) => s + (r.attributedViews || r.excessViews), 0),
+      medianTransferRate: transfers.length ? Math.round(median(transfers) * 1000) / 1000 : null,
+      medianUpliftPct: uplifts.length ? Math.round(median(uplifts) * 1000) / 1000 : null,
+      cleanMeasurements: list.filter((r) => r.method === "regression").length,
     });
   }
-  return out.sort((a, b) => b.totalExcessViews - a.totalExcessViews);
+  return out.sort((a, b) => b.totalAttributedViews - a.totalAttributedViews);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +403,8 @@ export interface LaunchStats {
   qtCount: number;
   rosterQtCount: number;
   qtTotalViews: number;
-  rosterExcessViews: number;
+  rosterAttributedViews: number;
+  attribution: AttributionSummary | null;
   impacts: QuoteImpactView[];
   profiles: AmplifierProfile[];
   series: { t: string; views: number; engagements: number }[];
@@ -252,9 +423,9 @@ const NARRATIVE_SCHEMA = {
   type: "object",
   properties: {
     headline: { type: "string", description: "One punchy line, ≤90 chars, with the launch's defining number." },
-    summary: { type: "string", description: "2-4 sentences: how the launch went, in plain operator language." },
-    keyMoments: { type: "array", items: { type: "string" }, description: "3-5 timestamped moments (use HH:MM), each tied to a number from the stats." },
-    amplifierInsights: { type: "array", items: { type: "string" }, description: "2-4 insights about which creators moved the needle, citing measured uplift/excess views and historical profiles when available." },
+    summary: { type: "string", description: "2-4 sentences: how the launch went, incl. the baseline vs QT-attributed split, in plain operator language." },
+    keyMoments: { type: "array", items: { type: "string" }, description: "3-5 timestamped moments (HH:MM), each tied to a number from the stats." },
+    amplifierInsights: { type: "array", items: { type: "string" }, description: "2-4 insights on who moved the needle: attributed views, transfer rates (main views per QT view), and historical track records where present. Note cluster-split credit when relevant." },
     recommendations: { type: "array", items: { type: "string" }, description: "2-4 concrete next-launch recommendations grounded ONLY in the measurements (who to activate, when, what to test)." },
   },
   required: ["headline", "summary", "keyMoments", "amplifierInsights", "recommendations"],
@@ -264,23 +435,24 @@ const NARRATIVE_SCHEMA = {
 async function writeNarrative(stats: LaunchStats): Promise<LaunchNarrative | null> {
   try {
     const client = getAnthropic();
-    // Compact payload — narrative rides on measurements, never raw dumps.
     const compact = {
       ...stats,
-      series: undefined, // the model doesn't need 1000 points
+      series: undefined,
+      qtMarkers: undefined,
       impacts: stats.impacts.slice(0, 25).map((i) => ({
         author: i.authorUsername,
         roster: i.isRoster,
         at: i.qtPostedAt,
-        prePaceVpm: i.prePaceVpm,
-        postPaceVpm: i.postPaceVpm,
-        upliftPct: i.upliftPct,
-        excessViews: i.excessViews,
-        contested: i.contested,
+        qtViews: i.qtViews,
+        attributedViews: i.attributedViews,
+        creditShare: i.creditShare,
+        transferRate: i.transferRate,
+        method: i.method,
+        cluster: i.clusterId,
+        clusterSize: i.clusterSize,
         insufficientData: i.insufficientData ?? false,
       })),
       profiles: stats.profiles.slice(0, 15),
-      qtMarkers: undefined,
     };
     const res = await client.messages.create({
       model: NICHE_MODEL,
@@ -291,7 +463,7 @@ async function writeNarrative(stats: LaunchStats): Promise<LaunchNarrative | nul
         {
           role: "user",
           content:
-            `You are writing the launch recap for an influencer-marketing ops team. Below are MEASURED stats from live-tracking a launch post on X: pace inflections attributed to each quote tweet (pre vs post views/min, excess views vs baseline), plus each amplifier's historical profile across past launches.\n\nRules: every number you mention must come from the data. Contested measurements (QTs landing within 5 minutes of each other) share credit — say so when relevant. insufficientData rows have no reliable measurement — never cite them as impact. Keep it sharp and operator-grade; no fluff.\n\nDATA:\n${JSON.stringify(compact)}`,
+            `You are writing the launch recap for an influencer-marketing ops team. The stats below come from regression attribution over a live-tracked launch post on X: the post's pace curve was decomposed into an organic baseline plus per-quote-tweet exposure kernels; attributedViews and transferRate (main-post views per view on the QT) are MEASURED via non-negative least squares. method "cluster-split" means several burst QTs shared one kernel and credit was split by their observed views — present those as a group with individual estimates. insufficientData rows have no measurement — never cite them as impact. The attribution block gives the launch-level split (baseline vs excess vs attributed vs unattributed) and the regression fit r2 — mention the fit honestly if it is weak (<0.4).\n\nRules: every number must come from the data. Keep it sharp and operator-grade; no fluff.\n\nDATA:\n${JSON.stringify(compact)}`,
         },
       ],
     });
@@ -312,12 +484,7 @@ export async function generateLaunchReport(
     where: { id: trackerId },
     include: {
       post: {
-        select: {
-          id: true,
-          url: true,
-          text: true,
-          account: { select: { username: true } },
-        },
+        select: { id: true, url: true, text: true, account: { select: { username: true } } },
       },
     },
   });
@@ -327,18 +494,22 @@ export async function generateLaunchReport(
   const windowEnd = tracker.stoppedAt ?? new Date();
 
   const snaps = await prisma.postSnapshot.findMany({
-    where: { postId: tracker.postId, capturedAt: { gte: new Date(windowStart.getTime() - 5 * MIN_MS), lte: windowEnd } },
+    where: {
+      postId: tracker.postId,
+      capturedAt: { gte: new Date(windowStart.getTime() - 5 * MIN_MS), lte: windowEnd },
+    },
     orderBy: { capturedAt: "asc" },
     select: { capturedAt: true, viewCount: true, engagements: true },
   });
-  if (snaps.length < 2) return { error: "Not enough tracked data yet — let it tick for a few minutes first." };
+  if (snaps.length < 2) {
+    return { error: "Not enough tracked data yet — let it tick for a few minutes first." };
+  }
 
-  const impacts = await computeAttribution(trackerId);
+  const { impacts, summary } = await computeAttribution(trackerId);
   const quotes = await prisma.liveQuote.findMany({ where: { trackerId } });
   const involved = [...new Set(impacts.map((i) => i.authorUsername))];
   const profiles = await getAmplifierProfiles(involved);
 
-  // Peak + average pace from consecutive snapshots.
   let peakPaceVpm = 0;
   let peakPaceAt: string | null = null;
   for (let i = 1; i < snaps.length; i++) {
@@ -372,7 +543,8 @@ export async function generateLaunchReport(
     qtCount: quotes.length,
     rosterQtCount: quotes.filter((q) => q.isRoster).length,
     qtTotalViews: quotes.reduce((s, q) => s + q.views, 0),
-    rosterExcessViews: impacts.filter((i) => i.isRoster).reduce((s, i) => s + i.excessViews, 0),
+    rosterAttributedViews: impacts.filter((i) => i.isRoster).reduce((s, i) => s + i.attributedViews, 0),
+    attribution: summary,
     impacts,
     profiles,
     series: snaps.map((s) => ({ t: s.capturedAt.toISOString(), views: s.viewCount, engagements: s.engagements })),
@@ -387,7 +559,9 @@ export async function generateLaunchReport(
       createdBy: createdBy ?? null,
       windowStart,
       windowEnd,
-      headline: narrative?.headline ?? `${stats.label}: +${stats.viewsGained.toLocaleString("en-US")} views in ${durationMin}m`,
+      headline:
+        narrative?.headline ??
+        `${stats.label}: +${stats.viewsGained.toLocaleString("en-US")} views in ${durationMin}m`,
       statsJson: JSON.stringify(stats),
       narrativeJson: narrative ? JSON.stringify(narrative) : "",
     },

@@ -216,6 +216,7 @@ model LiveTracker {
   post     Post        @relation(fields: [postId], references: [id], onDelete: Cascade)
   campaign Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   quotes   LiveQuote[]
+  quoteSnapshots LiveQuoteSnapshot[]
   reports  LaunchReport[]
   impacts  QuoteImpact[]
 
@@ -235,12 +236,18 @@ model QuoteImpact {
   authorUsername String
   isRoster       Boolean  @default(false)
   qtPostedAt     DateTime
-  prePaceVpm     Float // views/min in the window before the QT
-  postPaceVpm    Float // views/min in the window after
-  upliftPct      Float? // (post − pre) ÷ pre; null when pre ≈ 0
-  excessViews    Int // views above the pre-pace baseline within the window
-  windowMin      Int // analysis window length (minutes)
-  contested      Boolean  @default(false) // another QT within ±5 min shares credit
+  prePaceVpm     Float // main-post views/min before the QT's cluster
+  postPaceVpm    Float // main-post views/min after the QT's cluster
+  upliftPct      Float? // cluster-level pace uplift; null when pre ≈ 0
+  excessViews    Int // regression-attributed views (kept name for continuity)
+  windowMin      Int // grid/window length used (minutes)
+  contested      Boolean  @default(false) // separable only at cluster level
+  // Regression attribution (v2)
+  attributedViews Int     @default(0) // β_i · Σk_i — main-post views attributed to this QT
+  creditShare     Float? // share of total attributed excess (0..1)
+  transferRate    Float? // β_i — main-post views per view on this QT
+  clusterId       String? // burst id (QTs ≤90s apart share one)
+  method          String   @default("window") // regression | cluster-split | window
   createdAt      DateTime @default(now())
 
   tracker LiveTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
@@ -290,6 +297,23 @@ model LiveQuote {
 
   @@unique([trackerId, tweetId])
   @@index([trackerId, postedAt])
+}
+
+/// Time series of a quote tweet's own metrics during a live launch — the
+/// exposure kernels for regression attribution. Written on every discovery
+/// cycle (~2 min) and by the roster keep-alive batch.
+model LiveQuoteSnapshot {
+  id          String   @id @default(cuid())
+  trackerId   String
+  tweetId     String
+  capturedAt  DateTime @default(now())
+  views       Int      @default(0)
+  engagements Int      @default(0)
+
+  tracker LiveTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+
+  @@unique([trackerId, tweetId, capturedAt])
+  @@index([trackerId, tweetId, capturedAt])
 }
 
 /// Audit trail for campaign-rate changes — negotiation history per creator.
