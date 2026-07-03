@@ -81,32 +81,9 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Live pulse monitor — oscilloscope chrome for the launch tracker.
+   Live pulse monitor — phosphor glow on the traces (motion comes from real
+   5s beats, nothing simulated).
 --------------------------------------------------------------------------- */
-@keyframes pulse-scan {
-  from {
-    left: -12%;
-  }
-  to {
-    left: 104%;
-  }
-}
-.pulse-scan {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 88px;
-  pointer-events: none;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(55, 192, 138, 0.05) 55%,
-    rgba(55, 192, 138, 0.16) 96%,
-    rgba(150, 255, 210, 0.55) 100%
-  );
-  animation: pulse-scan 5.5s linear infinite;
-}
-/* Phosphor glow on the traces. */
 .pulse-chart .recharts-area-curve {
   filter: drop-shadow(0 0 6px rgba(55, 192, 138, 0.55));
 }

@@ -27,7 +27,7 @@ export function LiveTrackersManager({
   const [tweet, setTweet] = useState("");
   const [label, setLabel] = useState("");
   const [campaignId, setCampaignId] = useState("");
-  const [intervalSec, setIntervalSec] = useState("30");
+  const [intervalSec, setIntervalSec] = useState("5");
   const [maxHours, setMaxHours] = useState("24");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -98,7 +98,8 @@ export function LiveTrackersManager({
               Tick rate
             </span>
             <select value={intervalSec} onChange={(e) => setIntervalSec(e.target.value)} className={clsx(CONTROL, "mt-1 block")}>
-              <option value="30">Every 30s (panel open)</option>
+              <option value="5">Every 5s — realtime (panel open)</option>
+              <option value="30">Every 30s</option>
               <option value="60">Every 60s</option>
               <option value="120">Every 2 min</option>
             </select>
