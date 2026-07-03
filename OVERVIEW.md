@@ -32,6 +32,7 @@ auto-categorizes creators into niches with AI.
 11. [Leaderboard](#11-leaderboard)
 12. [Influencer detail page](#12-influencer-detail-page)
 13. [Campaigns & placements](#13-campaigns--placements)
+13b. [Live post tracking (launch ops)](#13b-live-post-tracking-launch-ops)
 14. [Shortlists](#14-shortlists)
 15. [The Ask assistant](#15-the-ask-assistant)
 16. [Dashboard, alerts & command palette](#16-dashboard-alerts--command-palette)
@@ -223,9 +224,9 @@ slate?"
 (Performance + rank, **Value Score + rank**, median views, followers, both ERs, **est. CPM**, WoW),
 the **Rates & value card** (all four formats with per-format implied CPM, basis marker, price
 position vs peers, value rank, cost per 1K engagements, rate freshness + inline ✎ editor), charts
-(follower growth, cumulative post views — carry-forward so freezes never dip, ER over time, and the
-**view distribution** scatter: every organic post vs the median/p25 bands, commissioned posts as ◆
-markers with delivery multiples), and recent posts ranked by views.
+(follower growth, **median views per posting day** — the typical-post trend, gaps on no-post days,
+ER over time, and the **view distribution** scatter: every organic post vs the median/p25 bands,
+commissioned posts as ◆ markers with delivery multiples), and recent posts ranked by views.
 
 ## 13. Campaigns & placements
 
@@ -239,6 +240,32 @@ flagged `commissioned`, un-frozen, and tracked on the extended window.
   engagement; per campaign, **total spend**, **blended CPM** and **cost/engagement** over
   priced+linked placements only (unpriced views never flatter the CPM).
 - Campaign list shows spend + actual CPM columns; underdelivery alerts include the price paid.
+
+## 13b. Live post tracking (launch ops)
+
+`/live` (`lib/live.ts`) — minute-by-minute telemetry for a launch post while the roster amplifies
+it. Paste the post's URL the moment it ships; the panel shows a Bloomberg-style readout:
+
+- **Ticker** — views, engagements, likes, reposts, replies, quotes, bookmarks, ER, each with a
+  trailing-5-minute delta.
+- **Pace** — views/min and engagements/min over trailing 5m and 15m windows.
+- **Charts** — views since tracking started, plus a velocity chart (new views/engagements per tick).
+- **Quote-tweet feed** — `advanced_search quoted_tweet_id:<id>` runs every ~4 minutes to discover
+  amplifiers; **roster creators are highlighted**, with a combined-QT-views roll-up. Known QTs get
+  their metrics refreshed in the same batched read as the main post.
+- **Controls** — stop/resume, label, optional campaign link, configurable auto-stop window.
+
+Mechanics & cost design:
+- A tick = one batched `tweets?tweet_ids=` read (main post + ≤19 recent QTs → ≤300 credits ≈ $0.003).
+- The open panel refreshes every 30s; **server-side rate-limiting (`intervalSec`, floor 30s) means
+  any number of open tabs cost at most one provider call per interval** (tick claims are atomic).
+- A per-minute Vercel cron (`/api/cron/live`) keeps trackers ticking when no tab is open.
+- **`maxDurationMin` auto-stops every tracker** (default 24h) so a forgotten tracker cannot bleed
+  credits. Snapshots land in `PostSnapshot` (source `live`), so the post's history persists after
+  the tracker stops. All calls are logged to `ApiCallLog` (purposes `live` / `live_quotes`).
+
+Tables: `LiveTracker` (status, interval, auto-stop window, last tick/quote-check) and `LiveQuote`
+(the amplification feed, `isRoster` flagged, unique per tracker+tweet).
 
 ## 14. Shortlists
 
@@ -327,10 +354,11 @@ instant navigation feedback.
 
 ## 22. Scheduled polling (Cron)
 
-`vercel.json` registers an hourly cron on `/api/cron/poll` (Vercel sends
-`Authorization: Bearer $CRON_SECRET`). Adaptive tiering means each run only touches accounts
-actually due. Vercel Hobby = daily crons + 60s functions; **Pro** (hourly + 300s) recommended at
-~300 accounts.
+`vercel.json` registers an hourly cron on `/api/cron/poll` plus a **per-minute cron on
+`/api/cron/live`** for launch-post trackers (Vercel sends `Authorization: Bearer $CRON_SECRET` to
+both). Adaptive tiering means each poll run only touches accounts actually due; the live cron
+no-ops unless a tracker is live and due. Vercel Hobby = daily crons + 60s functions; **Pro**
+(minute-level crons + 300s) required for this schedule.
 
 ## 23. The DataProvider abstraction
 
@@ -352,6 +380,9 @@ cron route requires `CRON_SECRET`.
 | `/api/accounts/[id]` | PATCH / DELETE | update status/tags/**rates (writes RateEvent + ratesUpdatedAt)** / remove |
 | `/api/accounts/[id]/backfill` | POST | backfill one account |
 | `/api/planner` | POST | **budget allocation (zod-validated)** |
+| `/api/live` · `/api/live/[id]` | GET/POST · GET/PATCH/DELETE | live trackers: list/start · payload/stop-resume/delete |
+| `/api/live/[id]/tick` | POST | one measurement cycle + fresh panel payload (rate-limited) |
+| `/api/cron/live` | GET | per-minute cron tick for all live trackers (CRON_SECRET) |
 | `/api/campaigns` · `/api/campaigns/[id]` | GET/POST · PATCH/DELETE | campaigns CRUD |
 | `/api/placements` · `/api/placements/[id]` | POST · DELETE | attach / detach commissioned posts |
 | `/api/shortlists` | GET / POST | list / create (**optional `items[]` bulk seed** — used by the planner) |
@@ -404,14 +435,15 @@ Vercel + Neon. Full runbook in **`DEPLOY.md`**; in short: provision Postgres, `n
 ```
 app/                       # App Router pages + API routes
   page.tsx                 # dashboard
-  leaderboard/ planner/ campaigns/ shortlists/ accounts/ niches/ cost/ settings/ login/
+  leaderboard/ planner/ live/ campaigns/ shortlists/ accounts/ niches/ cost/ settings/ login/
   influencer/[username]/   # detail page
-  api/                     # accounts, planner, campaigns, placements, shortlists,
-                           # chat, poll, cron, settings, niches, auth
+  api/                     # accounts, planner, live, campaigns, placements, shortlists,
+                           # chat, poll, cron (poll + live), settings, niches, auth
 components/                # Nav, CommandPalette, LeaderboardTable, BudgetPlanner, RateCard,
-                           # CampaignsManager, CampaignDetail, ShortlistsManager, AddToShortlist,
-                           # AccountsManager, InfluencerCharts, CostWidget, CostDailyChart,
-                           # AskWidget, RunPollButton, RatesEditor, NicheManager, SettingsForm, ui
+                           # LivePanel, LiveTrackersManager, CampaignsManager, CampaignDetail,
+                           # ShortlistsManager, AddToShortlist, AccountsManager, InfluencerCharts,
+                           # CostWidget, CostDailyChart, AskWidget, RunPollButton, RatesEditor,
+                           # NicheManager, SettingsForm, ui
 lib/
   db.ts                    # Prisma singleton (Neon cold-start retry)
   provider/                # DataProvider: types, twitterapiio, mock, index
@@ -419,6 +451,7 @@ lib/
   polling.ts ingest.ts     # poll/backfill engine + snapshot writes
   scoring.ts stats.ts      # Performance Score + shared statistics
   value.ts planner.ts      # the value layer + budget allocation
+  live.ts                  # launch-post live tracking (ticks, quote discovery)
   placements.ts            # campaign delivery + spend economics
   shortlists.ts alerts.ts  # slates with totals + needs-attention feed
   metrics.ts               # influencer detail series

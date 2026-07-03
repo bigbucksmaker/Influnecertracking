@@ -167,6 +167,7 @@ export default async function InfluencerPage({
         <InfluencerCharts
           followerSeries={followerSeries}
           reachSeries={reachSeries}
+          dailySeries={detail.dailySeries}
           distribution={distribution}
         />
       </div>

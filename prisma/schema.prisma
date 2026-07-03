@@ -112,6 +112,7 @@ model Post {
   account   Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
   snapshots PostSnapshot[]
   placements Placement[]
+  liveTrackers LiveTracker[]
 
   @@index([accountId, postedAt])
   @@index([isFrozen])
@@ -135,6 +136,7 @@ model Campaign {
 
   placements Placement[]
   shortlists Shortlist[]
+  liveTrackers LiveTracker[]
 
   @@index([status])
 }
@@ -190,6 +192,56 @@ model Placement {
   @@index([campaignId])
   @@index([accountId])
   @@index([postId])
+}
+
+/// A live launch-post tracker: high-frequency (per-minute) monitoring of one
+/// tweet during a launch window — views/engagement pace plus the quote-tweet
+/// amplification feed. Auto-stops after maxDurationMin to cap credit spend.
+model LiveTracker {
+  id               String    @id @default(cuid())
+  postId           String // the tracked tweet
+  label            String?
+  campaignId       String?
+  status           String    @default("live") // live | stopped
+  intervalSec      Int       @default(60) // min seconds between provider fetches
+  maxDurationMin   Int       @default(1440) // auto-stop guard (24h default)
+  startedAt        DateTime  @default(now())
+  stoppedAt        DateTime?
+  lastTickAt       DateTime?
+  lastQuoteCheckAt DateTime?
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+
+  post     Post        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  campaign Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  quotes   LiveQuote[]
+
+  @@index([status])
+  @@index([postId])
+}
+
+/// A quote tweet discovered while live-tracking a post — the amplification
+/// feed. isRoster marks authors who are on the shared watchlist.
+model LiveQuote {
+  id              String   @id @default(cuid())
+  trackerId       String
+  tweetId         String // the quote tweet's id
+  authorUsername  String
+  authorName      String?
+  authorFollowers Int      @default(0)
+  text            String   @default("")
+  url             String?
+  postedAt        DateTime
+  views           Int      @default(0)
+  engagements     Int      @default(0)
+  isRoster        Boolean  @default(false)
+  firstSeenAt     DateTime @default(now())
+  capturedAt      DateTime @default(now()) // metrics as of this time
+
+  tracker LiveTracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+
+  @@unique([trackerId, tweetId])
+  @@index([trackerId, postedAt])
 }
 
 /// Audit trail for campaign-rate changes — negotiation history per creator.

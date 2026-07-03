@@ -31,6 +31,15 @@ const I = {
       <line x1="14" y1="15.5" x2="16" y2="15.5" />
     </>
   ),
+  live: (
+    <>
+      <circle cx="12" cy="12" r="2" />
+      <path d="M8.5 8.5a5 5 0 0 0 0 7" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M5.6 5.6a9 9 0 0 0 0 12.8" />
+      <path d="M18.4 5.6a9 9 0 0 1 0 12.8" />
+    </>
+  ),
   campaigns: (
     <>
       <path d="M3 11l15-6v14L3 13z" />
@@ -89,6 +98,7 @@ const GROUPS: { label: string; links: NavLink[] }[] = [
   {
     label: "Operate",
     links: [
+      { href: "/live", label: "Live posts", icon: "live" },
       { href: "/campaigns", label: "Campaigns", icon: "campaigns" },
       { href: "/shortlists", label: "Shortlists", icon: "shortlists" },
       { href: "/accounts", label: "Watchlist", icon: "watchlist" },

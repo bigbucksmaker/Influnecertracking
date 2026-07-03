@@ -20,6 +20,7 @@ type Item = {
 const NAV: { label: string; href: string }[] = [
   { label: "Open Leaderboard", href: "/leaderboard" },
   { label: "Open Planner", href: "/planner" },
+  { label: "Open Live tracking", href: "/live" },
   { label: "Open Campaigns", href: "/campaigns" },
   { label: "Open Shortlists", href: "/shortlists" },
   { label: "Open Watchlist", href: "/accounts" },

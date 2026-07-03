@@ -17,7 +17,8 @@ const OPTS = { revalidate: 120, tags: [CACHE_TAG] };
 // read a stale, old-shaped entry written by a previous deploy (e.g. a
 // LeaderboardRow missing viewsSparkline → `undefined.filter` at render time).
 // v3: economics fields (value layer) on leaderboard/shortlists/campaigns.
-const V = "v3";
+// v4: dailySeries on influencer detail (median views per day chart).
+const V = "v4";
 
 export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard", V], OPTS);
 export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary", V], OPTS);
