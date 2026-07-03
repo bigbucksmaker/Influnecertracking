@@ -8,11 +8,12 @@
 // engagements/min), totals, and which roster creators have amplified.
 //
 // Cost design (twitterapi.io):
-//  • Each tick = one batched `tweets?tweet_ids=` read: the tracked post plus up
-//    to 19 recent quote tweets → ≤ 300 credits/tick ($0.003).
-//  • Quote DISCOVERY (advanced_search `quoted:<id>`) runs every ~4 minutes,
-//    not every tick.
-//  • Ticks are rate-limited server-side by `intervalSec` (min 30s) no matter
+//  • Each tick reads ONLY the tracked post (one `tweets?tweet_ids=` id →
+//    15 credits, $0.00015), so realtime cadences stay cheap: 5s ticks ≈
+//    10.8K credits/hour (~$0.11/h) while a panel is open.
+//  • Quote DISCOVERY (advanced_search) runs every ~4 minutes and refreshes the
+//    metrics of the quote tweets it returns — QT numbers lag ≤4 min by design.
+//  • Ticks are rate-limited server-side by `intervalSec` (floor 5s) no matter
 //    how many tabs are open; a per-minute cron covers closed-tab tracking.
 //  • `maxDurationMin` auto-stops every tracker (default 24h) so a forgotten
 //    tracker cannot bleed credits.
@@ -29,9 +30,8 @@ import { parseTweetId } from "./handles";
 import type { RawPostMetrics } from "./provider/types";
 import type { LiveTracker } from "@prisma/client";
 
-const MIN_INTERVAL_SEC = 30; // hard floor between provider fetches per tracker
+const MIN_INTERVAL_SEC = 5; // hard floor between provider fetches per tracker (realtime mode)
 const QUOTE_CHECK_SEC = 240; // discover new quote tweets every ~4 minutes
-const QUOTE_REFRESH_LIMIT = 19; // batched with the main post → ≤20 ids/request
 
 // ---------------------------------------------------------------------------
 // Read models
@@ -266,20 +266,13 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
   const post = await prisma.post.findUnique({ where: { id: tracker.postId } });
   if (!post) return { fetched: false, stopped: false };
 
-  // Batch: the tracked post + the most recent known quote tweets (metric refresh).
-  const recentQuotes = await prisma.liveQuote.findMany({
-    where: { trackerId: id },
-    orderBy: { postedAt: "desc" },
-    take: QUOTE_REFRESH_LIMIT,
-    select: { tweetId: true },
-  });
-  const ids = [tracker.postId, ...recentQuotes.map((q) => q.tweetId)];
-
+  // Cheap tick: the tracked post ONLY (15 credits) — this is what makes 5s
+  // realtime affordable. Quote-tweet metrics refresh on the discovery cycle.
   const provider = getProvider();
   const start = Date.now();
   let res;
   try {
-    res = await provider.getTweetsByIds(ids);
+    res = await provider.getTweetsByIds([tracker.postId]);
   } catch (err) {
     await recordError("tweets_by_ids", err, {
       accountId: post.accountId,
@@ -295,10 +288,9 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
   });
 
   const capturedAt = new Date();
-  const byId = new Map(res.data.map((r) => [r.tweetId, r]));
 
-  // 1) Snapshot the tracked post.
-  const main = byId.get(tracker.postId);
+  // Snapshot the tracked post.
+  const main = res.data.find((r) => r.tweetId === tracker.postId);
   if (main) {
     await prisma.postSnapshot.upsert({
       where: { postId_capturedAt: { postId: tracker.postId, capturedAt } },
@@ -324,17 +316,8 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
     });
   }
 
-  // 2) Refresh metrics on the known quote tweets that came back.
-  for (const q of recentQuotes) {
-    const raw = byId.get(q.tweetId);
-    if (!raw) continue;
-    await prisma.liveQuote.updateMany({
-      where: { trackerId: id, tweetId: q.tweetId },
-      data: { ...rawToUpdate(raw), capturedAt },
-    });
-  }
-
-  // 3) Periodically discover NEW quote tweets.
+  // Periodically discover NEW quote tweets (also refreshes metrics of the
+  // QTs the search returns — QT numbers intentionally lag ≤4 min).
   if (
     !tracker.lastQuoteCheckAt ||
     now - tracker.lastQuoteCheckAt.getTime() >= QUOTE_CHECK_SEC * 1000

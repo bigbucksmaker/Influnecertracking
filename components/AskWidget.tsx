@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -104,6 +104,21 @@ export function AskWidget() {
   });
   const busy = status === "submitted" || status === "streaming";
   const endRef = useRef<HTMLDivElement>(null);
+
+  // A finished turn whose assistant message has no text and no tool activity —
+  // the "silent nothing" failure mode. Surface it instead of leaving a void.
+  const lastAssistantEmpty = useMemo(() => {
+    if (busy || error || messages.length === 0) return false;
+    const m = messages[messages.length - 1];
+    if (m.role !== "assistant") return false;
+    const parts = (m as unknown as { parts?: Array<Record<string, unknown>> }).parts;
+    const hasContent =
+      (m.content ?? "").trim().length > 0 ||
+      (parts ?? []).some(
+        (p) => (p.type === "text" && String(p.text ?? "").trim().length > 0) || p.type === "tool-invocation",
+      );
+    return !hasContent;
+  }, [messages, busy, error]);
 
   // Auto-scroll to the newest content so streaming replies are always visible.
   useEffect(() => {
@@ -296,6 +311,22 @@ export function AskWidget() {
               <div className="rounded-xl border border-neg/40 bg-neg-soft px-3 py-2 text-[12.5px] text-neg">
                 <div className="font-medium">Something went wrong</div>
                 <div className="mt-0.5 break-words text-[11.5px] opacity-90">{error.message || "Unknown error."}</div>
+                <button onClick={() => reload()} className="mt-1.5 text-[11.5px] font-medium underline hover:no-underline">
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {lastAssistantEmpty && (
+              <div className="rounded-xl border border-warn/40 bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
+                <div className="font-medium">The model returned an empty response</div>
+                <div className="mt-0.5 text-[11.5px] opacity-90">
+                  That shouldn&apos;t happen — retry, and if it repeats, open{" "}
+                  <a href="/api/chat/health" target="_blank" rel="noreferrer" className="underline">
+                    /api/chat/health
+                  </a>{" "}
+                  for the diagnosis.
+                </div>
                 <button onClick={() => reload()} className="mt-1.5 text-[11.5px] font-medium underline hover:no-underline">
                   Retry
                 </button>

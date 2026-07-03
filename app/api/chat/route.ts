@@ -45,11 +45,18 @@ export async function POST(req: Request) {
     messages: convertToCoreMessages(messages),
     tools: assistantTools,
     maxSteps: 6,
+    // Nothing is allowed to hang invisibly: if the provider or a tool stalls,
+    // abort fires and the error surfaces in the widget instead of endless dots.
+    abortSignal: AbortSignal.timeout(120_000),
   });
 
   // Surface the real error to the client (internal tool) instead of the SDK's
-  // default masked "An error occurred." — makes failures diagnosable.
+  // default masked "An error occurred." — and log it server-side so Vercel's
+  // function logs always hold the truth. See also /api/chat/health.
   return result.toDataStreamResponse({
-    getErrorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    getErrorMessage: (error) => {
+      console.error("[ask] stream error:", error);
+      return error instanceof Error ? error.message : String(error);
+    },
   });
 }

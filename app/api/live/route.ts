@@ -11,7 +11,7 @@ const schema = z.object({
   tweet: z.string().trim().min(3),
   label: z.string().trim().max(140).nullable().optional(),
   campaignId: z.string().nullable().optional(),
-  intervalSec: z.number().int().min(30).max(3600).nullable().optional(),
+  intervalSec: z.number().int().min(5).max(3600).nullable().optional(),
   maxDurationMin: z.number().int().min(10).max(10080).nullable().optional(),
 });
 

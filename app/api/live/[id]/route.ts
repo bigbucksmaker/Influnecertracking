@@ -27,8 +27,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     changed = true;
   }
   if (typeof body.intervalSec === "number" && Number.isFinite(body.intervalSec)) {
-    if (body.intervalSec < 30 || body.intervalSec > 3600) {
-      return NextResponse.json({ error: "intervalSec must be 30–3600" }, { status: 400 });
+    if (body.intervalSec < 5 || body.intervalSec > 3600) {
+      return NextResponse.json({ error: "intervalSec must be 5–3600" }, { status: 400 });
     }
     await setTrackerInterval(id, body.intervalSec);
     changed = true;

@@ -19,9 +19,17 @@ import {
 import type { LivePayload, LiveSeriesPoint, LiveQuoteView } from "@/lib/live";
 import { Card, Badge, Avatar } from "./ui";
 import { TOOLTIP_STYLE } from "./InfluencerCharts";
-import { formatNumber, formatPct, relativeTime } from "@/lib/format";
+import { formatNumber, formatFull, formatPct, relativeTime } from "@/lib/format";
 
-const REFRESH_MS = 30_000;
+/** Adaptive Y-axis label: when the visible range is narrow relative to the
+ *  magnitude, compact labels all round to the same value (32K, 32K, 32K…) —
+ *  switch to full numbers so the axis stays honest. */
+function axisFormatter(values: number[]): (v: number) => string {
+  if (values.length === 0) return (v) => formatNumber(v);
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  return max - min < Math.max(1000, max * 0.02) ? (v) => formatFull(v) : (v) => formatNumber(v);
+}
 
 function hhmm(t: string): string {
   const d = new Date(t);
@@ -50,22 +58,6 @@ function windowDelta(series: LiveSeriesPoint[], key: keyof LiveSeriesPoint, wind
   const spanMin = (new Date(last.t).getTime() - new Date(ref.t).getTime()) / 60_000;
   if (spanMin <= 0) return null;
   return (Number(last[key]) - Number(ref[key])) as number;
-}
-
-/**
- * Live-estimated counter: holds the last actual value and advances it every
- * second by the current per-minute pace, snapping back to the actual on each
- * refresh. Makes the big numbers tick like a real counter between beats.
- */
-function useLiveEstimate(actual: number | null, ratePerMin: number | null, enabled: boolean): number | null {
-  const [est, setEst] = useState<number | null>(actual);
-  useEffect(() => setEst(actual), [actual]);
-  useEffect(() => {
-    if (!enabled || actual == null || ratePerMin == null || ratePerMin <= 0) return;
-    const id = setInterval(() => setEst((e) => (e == null ? e : e + ratePerMin / 60)), 1000);
-    return () => clearInterval(id);
-  }, [enabled, actual, ratePerMin]);
-  return est;
 }
 
 /** rAF ease-out tween towards a target number (for readouts that jump per refresh). */
@@ -165,20 +157,19 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
     }
   }, [tracker.id, isPublic, publicToken]);
 
-  // Auto-refresh while live; pause when the tab is hidden.
+  // Auto-refresh while live at the tracker's own cadence (floor 5s);
+  // pause when the tab is hidden.
+  const refreshMs = Math.max(5, tracker.intervalSec) * 1000;
   useEffect(() => {
     if (!live) return;
-    const start = () => {
-      if (!timer.current) timer.current = setInterval(() => {
-        if (document.visibilityState === "visible") void refresh();
-      }, REFRESH_MS);
-    };
-    start();
+    timer.current = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, refreshMs);
     return () => {
       if (timer.current) clearInterval(timer.current);
       timer.current = null;
     };
-  }, [live, refresh]);
+  }, [live, refresh, refreshMs]);
 
   async function setStatus(status: "live" | "stopped") {
     setBusy(true);
@@ -280,10 +271,12 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
   const viewsPace15 = pace(series, "views", 15);
   const engPace5 = pace(series, "engagements", 5);
 
-  // Living numbers: tick up each second at the current pace, snap on refresh.
-  const liveViews = useLiveEstimate(latest?.views ?? null, viewsPace5, live);
-  const liveEng = useLiveEstimate(latest?.engagements ?? null, engPace5, live);
+  // Smooth the pace readout between real beats — no simulated counting.
   const animatedPulse = useAnimatedNumber(lastPulse?.viewsPerMin ?? null);
+
+  // Honest axes for the cumulative charts (micro-ranges get full numbers).
+  const viewsAxisFmt = useMemo(() => axisFormatter(series.map((p) => p.views)), [series]);
+  const engAxisFmt = useMemo(() => axisFormatter(series.map((p) => p.engagements)), [series]);
 
   // The tab itself becomes a ticker while live.
   useEffect(() => {
@@ -349,11 +342,12 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
         <div className="flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 text-[11px] text-subtle" title="Panel refresh cadence">
             <span className={clsx("h-1.5 w-1.5 rounded-full", refreshing ? "animate-pulse-soft bg-accent" : "bg-line")} />
-            {refreshing ? "refreshing" : live ? "auto 30s" : "paused"}
+            {refreshing ? "refreshing" : live ? `auto ${tracker.intervalSec}s` : "paused"}
           </span>
           {!isPublic && (
-            <div className="flex overflow-hidden rounded-lg border border-line text-[11px]" title="How often the server fetches fresh metrics. 30s needs the panel open — the fallback cron ticks once a minute.">
+            <div className="flex overflow-hidden rounded-lg border border-line text-[11px]" title="How often the server fetches fresh metrics. Sub-minute cadences need the panel open — the fallback cron ticks once a minute.">
               {[
+                { sec: 5, label: "5s" },
                 { sec: 30, label: "30s" },
                 { sec: 60, label: "60s" },
                 { sec: 120, label: "2m" },
@@ -439,8 +433,8 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
       {/* Ticker */}
       <Card className="overflow-x-auto p-0">
         <div className="flex min-w-[900px] items-stretch">
-          <Tick label="Views" value={liveViews ?? latest?.views} delta={windowDelta(series, "views", 5)} big live={live} />
-          <Tick label="Engagements" value={liveEng ?? latest?.engagements} delta={windowDelta(series, "engagements", 5)} big live={live} />
+          <Tick label="Views" value={latest?.views} delta={windowDelta(series, "views", 5)} big />
+          <Tick label="Engagements" value={latest?.engagements} delta={windowDelta(series, "engagements", 5)} big />
           <Tick label="Likes" value={latest?.likes} delta={windowDelta(series, "likes", 5)} />
           <Tick label="Reposts" value={latest?.retweets} delta={windowDelta(series, "retweets", 5)} />
           <Tick label="Replies" value={latest?.replies} delta={windowDelta(series, "replies", 5)} />
@@ -491,7 +485,6 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
           <EmptyChart />
         ) : (
           <div className="pulse-chart relative overflow-hidden rounded-lg bg-black/25">
-            {live && <span aria-hidden className="pulse-scan" />}
             <ResponsiveContainer width="100%" height={260}>
               <ComposedChart data={pulse}>
               <defs>
@@ -560,9 +553,9 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
                 <XAxis dataKey="t" tickFormatter={hhmm} minTickGap={40} tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={hhmm} />
-                <Area type="monotone" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#liveViews)" isAnimationActive={false} />
+                <YAxis tickFormatter={viewsAxisFmt} width={70} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatFull(v)} labelFormatter={hhmm} />
+                <Area type="linear" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#liveViews)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -583,9 +576,9 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#23272F" />
                 <XAxis dataKey="t" tickFormatter={hhmm} minTickGap={40} tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatNumber(v)} labelFormatter={hhmm} />
-                <Area type="monotone" dataKey="engagements" stroke="#2AC8B5" strokeWidth={2} fill="url(#liveEng)" isAnimationActive={false} />
+                <YAxis tickFormatter={engAxisFmt} width={70} tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(v: number) => formatFull(v)} labelFormatter={hhmm} />
+                <Area type="linear" dataKey="engagements" stroke="#2AC8B5" strokeWidth={2} fill="url(#liveEng)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -624,22 +617,17 @@ function Tick({
   value,
   delta,
   big = false,
-  live = false,
   fmt = (v: number) => formatNumber(Math.round(v)),
 }: {
   label: string;
   value: number | null | undefined;
   delta?: number | null;
   big?: boolean;
-  live?: boolean;
   fmt?: (v: number) => string;
 }) {
   return (
     <div className="flex flex-1 flex-col gap-0.5 border-l border-line-soft px-4 py-3 first:border-l-0">
-      <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-subtle">
-        {label}
-        {live && big && <span className="h-1 w-1 animate-pulse-soft rounded-full bg-pos" title="Ticking live — estimated between beats from current pace, snaps to actuals on each refresh" />}
-      </span>
+      <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-subtle">{label}</span>
       <span className={clsx("font-mono font-medium tabular-nums text-fg", big ? "text-2xl" : "text-lg")}>
         {value != null ? fmt(value) : "—"}
       </span>
