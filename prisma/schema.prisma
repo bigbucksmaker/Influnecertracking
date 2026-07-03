@@ -205,6 +205,7 @@ model LiveTracker {
   status           String    @default("live") // live | stopped
   intervalSec      Int       @default(60) // min seconds between provider fetches
   maxDurationMin   Int       @default(1440) // auto-stop guard (24h default)
+  shareToken       String?   @unique // unguessable public read-only link (null = private)
   startedAt        DateTime  @default(now())
   stoppedAt        DateTime?
   lastTickAt       DateTime?

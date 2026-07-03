@@ -67,12 +67,14 @@ function pace(series: LiveSeriesPoint[], key: keyof LiveSeriesPoint, windowMin: 
   return (Number(last[key]) - Number(ref[key])) / spanMin;
 }
 
-export function LivePanel({ initial }: { initial: LivePayload }) {
+export function LivePanel({ initial, publicToken }: { initial: LivePayload; publicToken?: string }) {
   const router = useRouter();
+  const isPublic = !!publicToken;
   const [data, setData] = useState<LivePayload>(initial);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { tracker, series, quotes, quoteTotals } = data;
@@ -81,7 +83,11 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const r = await fetch(`/api/live/${tracker.id}/tick`, { method: "POST" });
+      // Public viewers READ the latest stored beats; only the owner's panel
+      // (and the cron) trigger provider fetches.
+      const r = isPublic
+        ? await fetch(`/api/share/live/${publicToken}`)
+        : await fetch(`/api/live/${tracker.id}/tick`, { method: "POST" });
       if (r.ok) {
         setData(await r.json());
         setErr(null);
@@ -94,7 +100,7 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
     } finally {
       setRefreshing(false);
     }
-  }, [tracker.id]);
+  }, [tracker.id, isPublic, publicToken]);
 
   // Auto-refresh while live; pause when the tab is hidden.
   useEffect(() => {
@@ -151,6 +157,43 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
     }
   }
 
+  async function copyShareLink(token: string) {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/share/live/${token}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setErr("Could not copy — copy it from the address bar of the share page instead.");
+    }
+  }
+
+  async function createShareLink() {
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/live/${tracker.id}/share`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.shareToken) {
+        setData((prev) => ({ ...prev, tracker: { ...prev.tracker, shareToken: d.shareToken } }));
+        await copyShareLink(d.shareToken);
+      } else {
+        setErr(d.error ?? "Could not create the share link.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeShareLink() {
+    if (!confirm("Revoke the public link? Anyone holding it loses access immediately.")) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/live/${tracker.id}/share`, { method: "DELETE" });
+      setData((prev) => ({ ...prev, tracker: { ...prev.tracker, shareToken: null } }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const latest = tracker.latest ?? (series.length ? series[series.length - 1] : null);
 
   // Pulse series — the heartbeat. Per-tick deltas NORMALISED to a per-minute
@@ -179,9 +222,18 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <Link href="/live" className="text-sm text-subtle hover:text-muted">
-            ← All live trackers
-          </Link>
+          {isPublic ? (
+            <div className="flex items-center gap-2 text-sm text-subtle">
+              <span className="grid h-5 w-5 place-items-center rounded-md bg-gradient-to-br from-accent to-accent-700 text-[10px] font-bold text-white">
+                V
+              </span>
+              virality.studio · live share
+            </div>
+          ) : (
+            <Link href="/live" className="text-sm text-subtle hover:text-muted">
+              ← All live trackers
+            </Link>
+          )}
           <div className="mt-1 flex flex-wrap items-center gap-2.5">
             <span
               className={clsx(
@@ -216,30 +268,32 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
             <p className="mt-2 line-clamp-2 max-w-2xl text-sm text-muted">{tracker.post.text}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 text-[11px] text-subtle" title="Panel refresh cadence">
             <span className={clsx("h-1.5 w-1.5 rounded-full", refreshing ? "animate-pulse-soft bg-accent" : "bg-line")} />
             {refreshing ? "refreshing" : live ? "auto 30s" : "paused"}
           </span>
-          <div className="flex overflow-hidden rounded-lg border border-line text-[11px]" title="How often the server fetches fresh metrics. 30s needs the panel open — the fallback cron ticks once a minute.">
-            {[
-              { sec: 30, label: "30s" },
-              { sec: 60, label: "60s" },
-              { sec: 120, label: "2m" },
-            ].map((o) => (
-              <button
-                key={o.sec}
-                onClick={() => setInterval_(o.sec)}
-                disabled={busy || !live}
-                className={clsx(
-                  "px-2.5 py-1.5 transition-colors disabled:opacity-50",
-                  tracker.intervalSec === o.sec ? "bg-pos-soft font-semibold text-pos" : "bg-surface text-muted hover:text-fg",
-                )}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
+          {!isPublic && (
+            <div className="flex overflow-hidden rounded-lg border border-line text-[11px]" title="How often the server fetches fresh metrics. 30s needs the panel open — the fallback cron ticks once a minute.">
+              {[
+                { sec: 30, label: "30s" },
+                { sec: 60, label: "60s" },
+                { sec: 120, label: "2m" },
+              ].map((o) => (
+                <button
+                  key={o.sec}
+                  onClick={() => setInterval_(o.sec)}
+                  disabled={busy || !live}
+                  className={clsx(
+                    "px-2.5 py-1.5 transition-colors disabled:opacity-50",
+                    tracker.intervalSec === o.sec ? "bg-pos-soft font-semibold text-pos" : "bg-surface text-muted hover:text-fg",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             onClick={() => refresh()}
             disabled={refreshing}
@@ -247,26 +301,58 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
           >
             Refresh now
           </button>
-          {live ? (
-            <button
-              onClick={() => setStatus("stopped")}
-              disabled={busy}
-              className="rounded-lg border border-neg/40 px-3 py-1.5 text-sm text-neg hover:bg-neg-soft"
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={() => setStatus("live")}
-              disabled={busy}
-              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-600"
-            >
-              Resume
-            </button>
+          {!isPublic && (
+            <>
+              {tracker.shareToken ? (
+                <>
+                  <button
+                    onClick={() => copyShareLink(tracker.shareToken!)}
+                    className="rounded-lg border border-money/40 bg-money-soft px-3 py-1.5 text-sm font-medium text-money-400 transition-colors hover:bg-money-soft"
+                    title="Public read-only link — no login needed, can't spend credits"
+                  >
+                    {copied ? "✓ Copied" : "Copy share link"}
+                  </button>
+                  <button
+                    onClick={revokeShareLink}
+                    disabled={busy}
+                    className="rounded-lg border border-line px-3 py-1.5 text-sm text-subtle hover:text-neg"
+                    title="Anyone holding the link loses access immediately"
+                  >
+                    Revoke
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={createShareLink}
+                  disabled={busy}
+                  className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted transition-colors hover:bg-surface-2"
+                  title="Create a public read-only link — no login needed, can't spend credits"
+                >
+                  Share
+                </button>
+              )}
+              {live ? (
+                <button
+                  onClick={() => setStatus("stopped")}
+                  disabled={busy}
+                  className="rounded-lg border border-neg/40 px-3 py-1.5 text-sm text-neg hover:bg-neg-soft"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={() => setStatus("live")}
+                  disabled={busy}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-600"
+                >
+                  Resume
+                </button>
+              )}
+              <button onClick={remove} disabled={busy} className="rounded-lg border border-line px-3 py-1.5 text-sm text-subtle hover:text-neg">
+                Delete
+              </button>
+            </>
           )}
-          <button onClick={remove} disabled={busy} className="rounded-lg border border-line px-3 py-1.5 text-sm text-subtle hover:text-neg">
-            Delete
-          </button>
         </div>
       </div>
 
@@ -442,7 +528,7 @@ export function LivePanel({ initial }: { initial: LivePayload }) {
         ) : (
           <ul className="divide-y divide-line-soft">
             {quotes.slice(0, 60).map((q) => (
-              <QuoteRow key={q.tweetId} q={q} />
+              <QuoteRow key={q.tweetId} q={q} external={isPublic} />
             ))}
           </ul>
         )}
@@ -496,15 +582,22 @@ function PaceCard({ label, v5, v15 }: { label: string; v5: number | null; v15: n
   );
 }
 
-function QuoteRow({ q }: { q: LiveQuoteView }) {
+function QuoteRow({ q, external = false }: { q: LiveQuoteView; external?: boolean }) {
   return (
     <li className={clsx("flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-surface-2", q.isRoster && "bg-money-soft")}>
       <Avatar src={null} alt={q.authorUsername} size={26} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm">
-          <Link href={`/influencer/${q.authorUsername}`} className="font-medium text-fg hover:underline">
-            @{q.authorUsername}
-          </Link>
+          {external ? (
+            // Public share view — internal pages are login-gated, so link to X.
+            <a href={`https://x.com/${q.authorUsername}`} target="_blank" rel="noreferrer" className="font-medium text-fg hover:underline">
+              @{q.authorUsername}
+            </a>
+          ) : (
+            <Link href={`/influencer/${q.authorUsername}`} className="font-medium text-fg hover:underline">
+              @{q.authorUsername}
+            </Link>
+          )}
           {q.isRoster && <Badge color="teal">roster</Badge>}
           <span className="text-xs text-subtle">· {relativeTime(q.postedAt)}</span>
         </div>

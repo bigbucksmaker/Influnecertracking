@@ -253,7 +253,12 @@ it. Paste the post's URL the moment it ships; the panel shows a Bloomberg-style 
 - **Quote-tweet feed** — `advanced_search quoted_tweet_id:<id>` runs every ~4 minutes to discover
   amplifiers; **roster creators are highlighted**, with a combined-QT-views roll-up. Known QTs get
   their metrics refreshed in the same batched read as the main post.
-- **Controls** — stop/resume, label, optional campaign link, configurable auto-stop window.
+- **Controls** — stop/resume, live tick-rate switch (30s/60s/2m), label, optional campaign link,
+  configurable auto-stop window.
+- **Public share links** — each tracker can mint an unguessable read-only URL
+  (`/share/live/<token>`, no login) for clients or the wider team on launch day. Public viewers
+  read the latest stored beats only — they can never trigger a provider call or spend credits —
+  and the link is revocable at any time. Share pages are `noindex`.
 
 Mechanics & cost design:
 - A tick = one batched `tweets?tweet_ids=` read (main post + ≤19 recent QTs → ≤300 credits ≈ $0.003).
@@ -382,6 +387,8 @@ cron route requires `CRON_SECRET`.
 | `/api/planner` | POST | **budget allocation (zod-validated)** |
 | `/api/live` · `/api/live/[id]` | GET/POST · GET/PATCH/DELETE | live trackers: list/start · payload/stop-resume/delete |
 | `/api/live/[id]/tick` | POST | one measurement cycle + fresh panel payload (rate-limited) |
+| `/api/live/[id]/share` | POST / DELETE | mint-or-rotate / revoke the public share token |
+| `/api/share/live/[token]` | GET | **public** read-only payload (token is the credential; never ticks) |
 | `/api/cron/live` | GET | per-minute cron tick for all live trackers (CRON_SECRET) |
 | `/api/campaigns` · `/api/campaigns/[id]` | GET/POST · PATCH/DELETE | campaigns CRUD |
 | `/api/placements` · `/api/placements/[id]` | POST · DELETE | attach / detach commissioned posts |
