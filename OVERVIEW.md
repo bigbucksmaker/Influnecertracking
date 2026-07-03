@@ -255,6 +255,13 @@ it. Paste the post's URL the moment it ships; the panel shows a Bloomberg-style 
   their metrics refreshed in the same batched read as the main post.
 - **Controls** — stop/resume, live tick-rate switch (30s/60s/2m), label, optional campaign link,
   configurable auto-stop window.
+- **Launch recap reports (on demand)** — the ⚡ Generate report button analyses the window so far:
+  per-QT **measured inflections** (main-post views/min before vs after each quote tweet, excess
+  views vs the pre-QT baseline, `contested` when QTs land within ±5 min), persisted as
+  `QuoteImpact` rows that accumulate into **cross-launch amplifier track records** — the system
+  learns who actually moves the needle. Claude writes the executive narrative + next-launch
+  recommendations over the measurements (degrades to stats-only if unavailable). Reports are
+  stored (`LaunchReport`) and never auto-generated.
 - **Public share links** — each tracker can mint an unguessable read-only URL
   (`/share/live/<token>`, no login) for clients or the wider team on launch day. Public viewers
   read the latest stored beats only — they can never trigger a provider call or spend credits —
@@ -388,6 +395,7 @@ cron route requires `CRON_SECRET`.
 | `/api/live` · `/api/live/[id]` | GET/POST · GET/PATCH/DELETE | live trackers: list/start · payload/stop-resume/delete |
 | `/api/live/[id]/tick` | POST | one measurement cycle + fresh panel payload (rate-limited) |
 | `/api/live/[id]/share` | POST / DELETE | mint-or-rotate / revoke the public share token |
+| `/api/live/[id]/report` | POST / GET | generate a launch recap on demand / list recaps |
 | `/api/share/live/[token]` | GET | **public** read-only payload (token is the credential; never ticks) |
 | `/api/cron/live` | GET | per-minute cron tick for all live trackers (CRON_SECRET) |
 | `/api/campaigns` · `/api/campaigns/[id]` | GET/POST · PATCH/DELETE | campaigns CRUD |
