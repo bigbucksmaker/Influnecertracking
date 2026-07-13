@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "virality.studio — X roster overlay",
+  "version": "1.0.0",
+  "description": "See your tracker's metrics on any X profile, and add creators to the roster in one click.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.virality.studio/*",
+    "https://virality.studio/*",
+    "http://localhost:3000/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "virality.studio overlay" },
+  "options_page": "options.html"
+}

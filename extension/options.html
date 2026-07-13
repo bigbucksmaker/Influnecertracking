@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>virality.studio overlay — options</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #07080A; color: #EDEFF3;
+        display: grid; place-items: center; min-height: 100vh; margin: 0; }
+      .card { width: 420px; background: #0F1116; border: 1px solid #232833; border-radius: 14px; padding: 24px; }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      p { color: #5F6673; font-size: 12.5px; margin: 0 0 16px; }
+      label { font-size: 11px; color: #9AA1AD; text-transform: uppercase; letter-spacing: .08em; }
+      input { width: 100%; box-sizing: border-box; background: #10131a; border: 1px solid #232833; border-radius: 8px;
+        color: #EDEFF3; padding: 10px 12px; font-size: 13px; margin: 6px 0 14px; }
+      input:focus { outline: none; border-color: #7C6DF7; }
+      button { background: #6C5DF0; color: #fff; border: 0; border-radius: 9px; padding: 10px 16px;
+        font-size: 13px; font-weight: 700; cursor: pointer; }
+      button:hover { background: #7C6DF7; }
+      #saved { color: #37C08A; font-size: 12px; margin-left: 10px; opacity: 0; transition: opacity .3s; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>virality.studio overlay</h1>
+      <p>The overlay talks to your tracker with the session you're already signed in with.</p>
+      <label for="base">Tracker base URL</label>
+      <input id="base" type="url" placeholder="https://www.virality.studio" />
+      <button id="save">Save</button><span id="saved">Saved ✓</span>
+    </div>
+    <script src="options.js"></script>
+  </body>
+</html>

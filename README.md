@@ -88,6 +88,10 @@ so negotiation history is queryable and stale rates are flagged in the UI after 
 - **Cost** — credits used, projections vs plan cap, per-endpoint/day/influencer breakdowns.
 - **Ask** — the in-app assistant. Curated tools + read-only SQL; answers "best value under $50 in AI
   niche", "build me a $3k plan" (planBudget tool); write actions require an explicit Confirm click.
+- **Chrome extension** ([`extension/`](extension/README.md)) — a dashboard overlay on X profiles:
+  tracked creators show their metrics (scores, median views, rates, CPM) in a right-hand drawer;
+  untracked ones get a one-click "Track" that adds + backfills, then swaps in the dashboard.
+  Served by `GET /api/ext/profile`; load unpacked via `chrome://extensions`.
 
 ---
 
