@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/live",
-      "schedule": "* * * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }
