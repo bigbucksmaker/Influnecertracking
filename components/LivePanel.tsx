@@ -176,13 +176,14 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
     }
   }, [tracker.id, isPublic, publicToken]);
 
-  // Auto-refresh while live at the tracker's own cadence (floor 5s);
-  // pause when the tab is hidden.
+  // Auto-refresh while live at the tracker's own cadence (floor 5s). Keep ticking
+  // even when the tab is backgrounded/inactive so the series stays at the chosen
+  // cadence; tickTracker throttles provider calls so extra tabs cost nothing.
   const refreshMs = Math.max(5, tracker.intervalSec) * 1000;
   useEffect(() => {
     if (!live) return;
     timer.current = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      void refresh();
     }, refreshMs);
     return () => {
       if (timer.current) clearInterval(timer.current);
