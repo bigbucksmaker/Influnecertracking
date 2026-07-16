@@ -40,6 +40,19 @@ function hhmm(t: string | number): string {
 // with the selected tick (e.g. 60 × 30s = 30 min, 60 × 2m = 2 h).
 const PULSE_WINDOW_TICKS = 60;
 
+// Clean, boundary-aligned time ticks so the axis steps on whole minutes (or a
+// sensible multiple), e.g. 10:48 · 10:49 · 10:50 — not ragged sub-minute offsets.
+function niceTimeTicks(start: number, end: number): number[] {
+  const span = Math.max(1, end - start);
+  const MIN = 60_000;
+  const steps = [MIN, 2 * MIN, 5 * MIN, 10 * MIN, 15 * MIN, 30 * MIN, 60 * MIN, 120 * MIN];
+  const step = steps.find((s) => span / s <= 6) ?? steps[steps.length - 1];
+  const first = Math.ceil(start / step) * step;
+  const out: number[] = [];
+  for (let t = first; t <= end; t += step) out.push(t);
+  return out.length ? out : [start, end];
+}
+
 function elapsed(fromIso: string, toIso?: string | null): string {
   const ms = (toIso ? new Date(toIso).getTime() : Date.now()) - new Date(fromIso).getTime();
   const m = Math.max(0, Math.floor(ms / 60_000));
@@ -308,9 +321,8 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
     const windowMs = Math.max(1, tracker.intervalSec) * 1000 * PULSE_WINDOW_TICKS;
     const start = Math.max(pulse[0].tMs, end - windowMs);
     const data = pulse.filter((p) => p.tMs >= start);
-    // Explicit, evenly-spaced ticks so labels are predictable (don't rely on the
-    // time scale's auto-ticks, which can collapse to just the endpoints).
-    const ticks = Array.from({ length: 5 }, (_, i) => Math.round(start + ((end - start) * i) / 4));
+    // Clean, minute-aligned ticks (10:48, 10:49, …) instead of ragged offsets.
+    const ticks = niceTimeTicks(start, end);
     return { data, domain: [start, end] as [number, number], ticks };
   }, [pulse, tracker.intervalSec]);
 
