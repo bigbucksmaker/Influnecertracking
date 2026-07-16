@@ -303,11 +303,15 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
   // and widens at 2m, and real gaps read as gaps. Before the window fills we don't
   // pad left of the first point (avoids an empty chart early on).
   const pulseView = useMemo(() => {
-    if (pulse.length === 0) return { data: pulse, domain: undefined as [number, number] | undefined };
+    if (pulse.length === 0) return { data: pulse, domain: undefined as [number, number] | undefined, ticks: [] as number[] };
     const end = pulse[pulse.length - 1].tMs;
     const windowMs = Math.max(1, tracker.intervalSec) * 1000 * PULSE_WINDOW_TICKS;
     const start = Math.max(pulse[0].tMs, end - windowMs);
-    return { data: pulse.filter((p) => p.tMs >= start), domain: [start, end] as [number, number] };
+    const data = pulse.filter((p) => p.tMs >= start);
+    // Explicit, evenly-spaced ticks so labels are predictable (don't rely on the
+    // time scale's auto-ticks, which can collapse to just the endpoints).
+    const ticks = Array.from({ length: 5 }, (_, i) => Math.round(start + ((end - start) * i) / 4));
+    return { data, domain: [start, end] as [number, number], ticks };
   }, [pulse, tracker.intervalSec]);
 
   const viewsPace5 = pace(series, "views", 5);
@@ -557,8 +561,8 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
               <XAxis
                 dataKey="tMs"
                 type="number"
-                scale="time"
                 domain={pulseView.domain}
+                ticks={pulseView.ticks}
                 tickFormatter={hhmm}
                 minTickGap={48}
                 tick={{ fontSize: 11 }}
@@ -593,7 +597,7 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
               />
               {lastPulse && (
                 <ReferenceDot
-                  x={lastPulse.t}
+                  x={lastPulse.tMs}
                   y={lastPulse.viewsPerMin}
                   shape={(p: { cx?: number; cy?: number }) => <PulseDot cx={p.cx} cy={p.cy} />}
                 />
