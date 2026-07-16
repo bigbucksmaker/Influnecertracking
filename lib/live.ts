@@ -249,7 +249,14 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
   }
 
   const interval = Math.max(MIN_INTERVAL_SEC, tracker.intervalSec) * 1000;
-  if (tracker.lastTickAt && now - tracker.lastTickAt.getTime() < interval) {
+  // Grace margin: the panel polls exactly every `interval`, so timer jitter +
+  // network latency make an on-time poll land right on the boundary. With a
+  // strict `< interval` check those polls are rejected and we drop every other
+  // beat — a 30s setting then behaves like ~60s. Accept polls within grace so
+  // the cadence actually honours the chosen tick.
+  const grace = Math.min(5000, interval * 0.25);
+  const threshold = interval - grace;
+  if (tracker.lastTickAt && now - tracker.lastTickAt.getTime() < threshold) {
     return { fetched: false, stopped: false };
   }
 
@@ -258,7 +265,7 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
     where: {
       id,
       status: "live",
-      OR: [{ lastTickAt: null }, { lastTickAt: { lt: new Date(now - interval) } }],
+      OR: [{ lastTickAt: null }, { lastTickAt: { lt: new Date(now - threshold) } }],
     },
     data: { lastTickAt: new Date(now) },
   });
