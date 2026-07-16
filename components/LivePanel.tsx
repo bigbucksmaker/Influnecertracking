@@ -31,9 +31,26 @@ function axisFormatter(values: number[]): (v: number) => string {
   return max - min < Math.max(1000, max * 0.02) ? (v) => formatFull(v) : (v) => formatNumber(v);
 }
 
-function hhmm(t: string): string {
+function hhmm(t: string | number): string {
   const d = new Date(t);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// Rolling Pulse window = this many beats; the visible time span therefore scales
+// with the selected tick (e.g. 60 × 30s = 30 min, 60 × 2m = 2 h).
+const PULSE_WINDOW_TICKS = 60;
+
+// Clean, boundary-aligned time ticks so the axis steps on whole minutes (or a
+// sensible multiple), e.g. 10:48 · 10:49 · 10:50 — not ragged sub-minute offsets.
+function niceTimeTicks(start: number, end: number): number[] {
+  const span = Math.max(1, end - start);
+  const MIN = 60_000;
+  const steps = [MIN, 2 * MIN, 5 * MIN, 10 * MIN, 15 * MIN, 30 * MIN, 60 * MIN, 120 * MIN];
+  const step = steps.find((s) => span / s <= 6) ?? steps[steps.length - 1];
+  const first = Math.ceil(start / step) * step;
+  const out: number[] = [];
+  for (let t = first; t <= end; t += step) out.push(t);
+  return out.length ? out : [start, end];
 }
 
 function elapsed(fromIso: string, toIso?: string | null): string {
@@ -278,12 +295,14 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
   // Pulse series — the heartbeat. Per-tick deltas NORMALISED to a per-minute
   // rate, so 30s panel ticks and 60s cron ticks read on the same scale.
   const pulse = useMemo(() => {
-    const out: { t: string; viewsPerMin: number; engPerMin: number }[] = [];
+    const out: { t: string; tMs: number; viewsPerMin: number; engPerMin: number }[] = [];
     for (let i = 1; i < series.length; i++) {
-      const dtMin = (new Date(series[i].t).getTime() - new Date(series[i - 1].t).getTime()) / 60_000;
+      const tMs = new Date(series[i].t).getTime();
+      const dtMin = (tMs - new Date(series[i - 1].t).getTime()) / 60_000;
       if (dtMin <= 0) continue;
       out.push({
         t: series[i].t,
+        tMs,
         viewsPerMin: Math.max(0, Math.round((series[i].views - series[i - 1].views) / dtMin)),
         engPerMin: Math.max(0, Math.round(((series[i].engagements - series[i - 1].engagements) / dtMin) * 10) / 10),
       });
@@ -291,6 +310,21 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
     return out.slice(-180);
   }, [series]);
   const lastPulse = pulse.length ? pulse[pulse.length - 1] : null;
+
+  // Pulse x-axis SCALES WITH THE TICK. A real time scale (epoch ms) over a rolling
+  // window of the last PULSE_WINDOW_TICKS beats, so the visible span tightens at 30s
+  // and widens at 2m, and real gaps read as gaps. Before the window fills we don't
+  // pad left of the first point (avoids an empty chart early on).
+  const pulseView = useMemo(() => {
+    if (pulse.length === 0) return { data: pulse, domain: undefined as [number, number] | undefined, ticks: [] as number[] };
+    const end = pulse[pulse.length - 1].tMs;
+    const windowMs = Math.max(1, tracker.intervalSec) * 1000 * PULSE_WINDOW_TICKS;
+    const start = Math.max(pulse[0].tMs, end - windowMs);
+    const data = pulse.filter((p) => p.tMs >= start);
+    // Clean, minute-aligned ticks (10:48, 10:49, …) instead of ragged offsets.
+    const ticks = niceTimeTicks(start, end);
+    return { data, domain: [start, end] as [number, number], ticks };
+  }, [pulse, tracker.intervalSec]);
 
   const viewsPace5 = pace(series, "views", 5);
   const viewsPace15 = pace(series, "views", 15);
@@ -523,12 +557,12 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
             </div>
           )}
         </div>
-        {pulse.length < 2 ? (
+        {pulseView.data.length < 2 ? (
           <EmptyChart />
         ) : (
           <div className="pulse-chart relative overflow-hidden rounded-lg bg-black/25">
             <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={pulse}>
+              <ComposedChart data={pulseView.data}>
               <defs>
                 <linearGradient id="pulseFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#37C08A" stopOpacity={0.28} />
@@ -536,7 +570,15 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1A1D24" />
-              <XAxis dataKey="t" tickFormatter={hhmm} minTickGap={48} tick={{ fontSize: 11 }} />
+              <XAxis
+                dataKey="tMs"
+                type="number"
+                domain={pulseView.domain}
+                ticks={pulseView.ticks}
+                tickFormatter={hhmm}
+                minTickGap={48}
+                tick={{ fontSize: 11 }}
+              />
               <YAxis tickFormatter={(v) => formatNumber(v)} width={48} tick={{ fontSize: 11 }} />
               <Tooltip
                 {...TOOLTIP_STYLE}
@@ -567,7 +609,7 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
               />
               {lastPulse && (
                 <ReferenceDot
-                  x={lastPulse.t}
+                  x={lastPulse.tMs}
                   y={lastPulse.viewsPerMin}
                   shape={(p: { cx?: number; cy?: number }) => <PulseDot cx={p.cx} cy={p.cy} />}
                 />
