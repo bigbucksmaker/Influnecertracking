@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   Area,
+  Brush,
   CartesianGrid,
   ComposedChart,
   ReferenceLine,
@@ -213,6 +214,14 @@ export function LaunchReportView({ report }: { report: ReportData }) {
               />
             ))}
             <Area type="linear" dataKey="views" stroke="#7C6DF7" strokeWidth={2} fill="url(#reportViews)" isAnimationActive={false} />
+            <Brush
+              dataKey="t"
+              height={22}
+              travellerWidth={8}
+              tickFormatter={hhmm}
+              stroke="#7C6DF7"
+              fill="rgba(15,17,22,0.85)"
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </Card>

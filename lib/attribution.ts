@@ -37,6 +37,23 @@ export function makeGrid(startMs: number, endMs: number, stepMs = 60_000): Grid 
   return { t0: startMs, steps, stepMs };
 }
 
+/**
+ * Drop provider-glitch observations from a cumulative series. View counters
+ * on X never legitimately halve — a point collapsing >50% below the running
+ * maximum is a transient bad read (typically a spurious 0) and would create
+ * both a fake cliff and a fake recovery spike downstream.
+ */
+export function cleanCum(points: CumPoint[]): CumPoint[] {
+  let runMax = 0;
+  const out: CumPoint[] = [];
+  for (const p of points) {
+    if (runMax > 100 && p.v < runMax * 0.5) continue;
+    runMax = Math.max(runMax, p.v);
+    out.push(p);
+  }
+  return out;
+}
+
 /** Monotone linear interpolation of a cumulative series at time t. */
 function cumAt(points: CumPoint[], t: number): number {
   if (points.length === 0) return 0;

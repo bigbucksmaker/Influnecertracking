@@ -7,6 +7,7 @@ import { clsx } from "clsx";
 import {
   Area,
   AreaChart,
+  Brush,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -275,22 +276,40 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
 
   const latest = tracker.latest ?? (series.length ? series[series.length - 1] : null);
 
-  // Pulse series — the heartbeat. Per-tick deltas NORMALISED to a per-minute
-  // rate, so 30s panel ticks and 60s cron ticks read on the same scale.
+  // Pulse series — the heartbeat, measured over a SLIDING 90s WINDOW rather
+  // than tick-to-tick deltas. X updates its view counters in batches, so raw
+  // 5s deltas read as a comb (0,0,0,lump); the sliding window shows the true
+  // rate without fake smoothing of real surges.
   const pulse = useMemo(() => {
+    const W = 90_000;
+    const ts = series.map((p) => new Date(p.t).getTime());
     const out: { t: string; viewsPerMin: number; engPerMin: number }[] = [];
+    let j = 0;
     for (let i = 1; i < series.length; i++) {
-      const dtMin = (new Date(series[i].t).getTime() - new Date(series[i - 1].t).getTime()) / 60_000;
+      while (j < i - 1 && ts[i] - ts[j + 1] >= W) j++;
+      const dtMin = (ts[i] - ts[j]) / 60_000;
       if (dtMin <= 0) continue;
       out.push({
         t: series[i].t,
-        viewsPerMin: Math.max(0, Math.round((series[i].views - series[i - 1].views) / dtMin)),
-        engPerMin: Math.max(0, Math.round(((series[i].engagements - series[i - 1].engagements) / dtMin) * 10) / 10),
+        viewsPerMin: Math.max(0, Math.round((series[i].views - series[j].views) / dtMin)),
+        engPerMin: Math.max(0, Math.round(((series[i].engagements - series[j].engagements) / dtMin) * 10) / 10),
       });
     }
-    return out.slice(-180);
+    return out.slice(-720);
   }, [series]);
   const lastPulse = pulse.length ? pulse[pulse.length - 1] : null;
+
+  // Timeline range: presets narrow every chart; the brush under the pulse
+  // gives free-form zoom within the visible range.
+  const [rangeMin, setRangeMin] = useState<number | null>(null);
+  const inRange = useMemo(() => {
+    if (rangeMin == null) return () => true;
+    const cutoff = Date.now() - rangeMin * 60_000;
+    return (t: string) => new Date(t).getTime() >= cutoff;
+  }, [rangeMin]);
+  const visSeries = useMemo(() => series.filter((p) => inRange(p.t)), [series, inRange]);
+  const visPulse = useMemo(() => pulse.filter((p) => inRange(p.t)), [pulse, inRange]);
+  const lastVisPulse = visPulse.length ? visPulse[visPulse.length - 1] : null;
 
   const viewsPace5 = pace(series, "views", 5);
   const viewsPace15 = pace(series, "views", 15);
@@ -514,21 +533,42 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
           <div className="flex items-center gap-2 text-xs font-medium text-subtle">
             <span className={clsx("h-1.5 w-1.5 rounded-full bg-pos", live && "animate-pulse-soft")} />
             Pulse — views per minute
-            <span className="text-subtle/70">· teal line = engagements/min</span>
+            <span className="text-subtle/70">· 90s sliding window · teal = engagements/min</span>
           </div>
-          {lastPulse && (
-            <div className="font-mono text-lg font-semibold tabular-nums text-pos">
-              {formatNumber(Math.round(animatedPulse ?? lastPulse.viewsPerMin))}
-              <span className="ml-1 text-xs font-normal text-subtle">/min now</span>
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded-lg border border-line text-[10.5px]">
+              {[
+                { m: 15, label: "15m" },
+                { m: 60, label: "1h" },
+                { m: 360, label: "6h" },
+                { m: null, label: "All" },
+              ].map((o) => (
+                <button
+                  key={o.label}
+                  onClick={() => setRangeMin(o.m)}
+                  className={clsx(
+                    "px-2 py-1 transition-colors",
+                    rangeMin === o.m ? "bg-accent-soft font-semibold text-accent-400" : "bg-surface text-muted hover:text-fg",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
             </div>
-          )}
+            {lastPulse && (
+              <div className="font-mono text-lg font-semibold tabular-nums text-pos">
+                {formatNumber(Math.round(animatedPulse ?? lastPulse.viewsPerMin))}
+                <span className="ml-1 text-xs font-normal text-subtle">/min now</span>
+              </div>
+            )}
+          </div>
         </div>
-        {pulse.length < 2 ? (
+        {visPulse.length < 2 ? (
           <EmptyChart />
         ) : (
           <div className="pulse-chart relative overflow-hidden rounded-lg bg-black/25">
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={pulse}>
+            <ResponsiveContainer width="100%" height={290}>
+              <ComposedChart data={visPulse}>
               <defs>
                 <linearGradient id="pulseFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#37C08A" stopOpacity={0.28} />
@@ -565,13 +605,21 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
                 dot={false}
                 isAnimationActive={false}
               />
-              {lastPulse && (
+              {lastVisPulse && (
                 <ReferenceDot
-                  x={lastPulse.t}
-                  y={lastPulse.viewsPerMin}
+                  x={lastVisPulse.t}
+                  y={lastVisPulse.viewsPerMin}
                   shape={(p: { cx?: number; cy?: number }) => <PulseDot cx={p.cx} cy={p.cy} />}
                 />
               )}
+              <Brush
+                dataKey="t"
+                height={22}
+                travellerWidth={8}
+                tickFormatter={hhmm}
+                stroke="#7C6DF7"
+                fill="rgba(15,17,22,0.85)"
+              />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -582,11 +630,11 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <div className="mb-2 text-xs font-medium text-subtle">Views since tracking started</div>
-          {series.length < 2 ? (
+          {visSeries.length < 2 ? (
             <EmptyChart />
           ) : (
             <ResponsiveContainer width="100%" height={210}>
-              <AreaChart data={series}>
+              <AreaChart data={visSeries}>
                 <defs>
                   <linearGradient id="liveViews" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#7C6DF7" stopOpacity={0.4} />
@@ -605,11 +653,11 @@ export function LivePanel({ initial, publicToken }: { initial: LivePayload; publ
 
         <Card className="p-4">
           <div className="mb-2 text-xs font-medium text-subtle">Engagements since tracking started</div>
-          {series.length < 2 ? (
+          {visSeries.length < 2 ? (
             <EmptyChart />
           ) : (
             <ResponsiveContainer width="100%" height={210}>
-              <AreaChart data={series}>
+              <AreaChart data={visSeries}>
                 <defs>
                   <linearGradient id="liveEng" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#2AC8B5" stopOpacity={0.35} />

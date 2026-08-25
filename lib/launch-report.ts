@@ -30,6 +30,7 @@ import {
   nnlsRidge,
   clusterByGap,
   kernelMass,
+  cleanCum,
   type CumPoint,
   type Grid,
 } from "./attribution";
@@ -118,7 +119,9 @@ export async function computeAttribution(trackerId: string): Promise<{
 
   if (quotes.length === 0) return { impacts: [], summary: null };
 
-  const mainCum: CumPoint[] = snapsRaw.map((s) => ({ t: s.capturedAt.getTime(), v: s.viewCount }));
+  const mainCum: CumPoint[] = cleanCum(
+    snapsRaw.map((s) => ({ t: s.capturedAt.getTime(), v: s.viewCount })),
+  );
   const grid: Grid = makeGrid(windowStart, windowEnd, MIN_MS);
   const mainPace = paceOnGrid(mainCum, grid);
   const coveredSteps = mainPace.filter((v) => v > 0).length;
@@ -150,7 +153,7 @@ export async function computeAttribution(trackerId: string): Promise<{
   let syntheticKernels = 0;
 
   quotes.forEach((q, qi) => {
-    const obs = [{ t: q.postedAt.getTime(), v: 0 }, ...(qtSnapsById.get(q.tweetId) ?? [])];
+    const obs = [{ t: q.postedAt.getTime(), v: 0 }, ...cleanCum(qtSnapsById.get(q.tweetId) ?? [])];
     const spanMin = obs.length >= 2 ? (obs[obs.length - 1].t - obs[0].t) / MIN_MS : 0;
     const isReal = obs.length >= REAL_KERNEL_MIN_POINTS && spanMin >= REAL_KERNEL_MIN_SPAN_MIN;
     if (isReal) {
@@ -497,7 +500,7 @@ export async function generateLaunchReport(
   const windowStart = tracker.startedAt;
   const windowEnd = tracker.stoppedAt ?? new Date();
 
-  const snaps = await prisma.postSnapshot.findMany({
+  const snapsRaw = await prisma.postSnapshot.findMany({
     where: {
       postId: tracker.postId,
       capturedAt: { gte: new Date(windowStart.getTime() - 5 * MIN_MS), lte: windowEnd },
@@ -512,6 +515,15 @@ export async function generateLaunchReport(
       replyCount: true,
       quoteCount: true,
     },
+  });
+  // Provider-glitch guard: drop rows where views collapse >50% below the
+  // running max (transient zeros) — they poison peak pace, gained deltas,
+  // and the report curve.
+  let runMax = 0;
+  const snaps = snapsRaw.filter((s) => {
+    if (runMax > 100 && s.viewCount < runMax * 0.5) return false;
+    runMax = Math.max(runMax, s.viewCount);
+    return true;
   });
   if (snaps.length < 2) {
     return { error: "Not enough tracked data yet — let it tick for a few minutes first." };
