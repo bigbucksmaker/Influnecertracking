@@ -290,9 +290,26 @@ export async function tickTracker(id: string): Promise<{ fetched: boolean; stopp
 
   const capturedAt = new Date();
 
-  // Snapshot the tracked post.
+  // Snapshot the tracked post — with a glitch guard: view counters never
+  // legitimately halve, so a reading collapsing >50% below the last known
+  // value is a transient provider error (typically a spurious 0). Storing it
+  // would paint a fake cliff AND a fake recovery spike on every chart.
   const main = res.data.find((r) => r.tweetId === tracker.postId);
-  if (main) {
+  const lastSnap = main
+    ? await prisma.postSnapshot.findFirst({
+        where: { postId: tracker.postId },
+        orderBy: { capturedAt: "desc" },
+        select: { viewCount: true },
+      })
+    : null;
+  const glitch =
+    main != null && lastSnap != null && lastSnap.viewCount > 100 && main.viewCount < lastSnap.viewCount * 0.5;
+  if (glitch) {
+    console.warn(
+      `[live] discarded glitch snapshot for ${tracker.postId}: ${main?.viewCount} after ${lastSnap?.viewCount}`,
+    );
+  }
+  if (main && !glitch) {
     await prisma.postSnapshot.upsert({
       where: { postId_capturedAt: { postId: tracker.postId, capturedAt } },
       update: {},
@@ -382,11 +399,23 @@ async function discoverQuotes(tracker: LiveTracker, accountId: string): Promise<
   const seenIds = new Set<string>();
   const snapshotRows: { trackerId: string; tweetId: string; capturedAt: Date; views: number; engagements: number }[] = [];
 
+  // Last-known QT views, for the same glitch guard as the main post.
+  const knownQuotes = await prisma.liveQuote.findMany({
+    where: { trackerId: tracker.id },
+    select: { tweetId: true, views: true },
+  });
+  const knownViews = new Map(knownQuotes.map((q) => [q.tweetId, q.views]));
+  const isGlitch = (tweetId: string, views: number) => {
+    const prev = knownViews.get(tweetId);
+    return prev != null && prev > 100 && views < prev * 0.5;
+  };
+
   for (const raw of page.data) {
     if (!raw.tweetId || raw.isRetweet) continue;
     const username = (raw.authorUsername ?? "").toLowerCase();
     if (!username) continue;
     seenIds.add(raw.tweetId);
+    if (isGlitch(raw.tweetId, raw.viewCount)) continue; // transient bad read — keep last good values
     snapshotRows.push({
       trackerId: tracker.id,
       tweetId: raw.tweetId,
@@ -428,6 +457,7 @@ async function discoverQuotes(tracker: LiveTracker, accountId: string): Promise<
       await recordCost(res.cost, { accountId, purpose: "live_quotes", durationMs: Date.now() - t2 });
       for (const raw of res.data) {
         if (!raw.tweetId) continue;
+        if (isGlitch(raw.tweetId, raw.viewCount)) continue;
         snapshotRows.push({
           trackerId: tracker.id,
           tweetId: raw.tweetId,
@@ -581,7 +611,7 @@ export async function getTrackerPayload(id: string): Promise<LivePayload | null>
   })) as TrackerWithRels | null;
   if (!t) return null;
 
-  const [snaps, quotes] = await Promise.all([
+  const [snapsRaw, quotes] = await Promise.all([
     prisma.postSnapshot.findMany({
       where: { postId: t.postId, capturedAt: { gte: new Date(t.startedAt.getTime() - 5 * 60_000) } },
       orderBy: { capturedAt: "asc" },
@@ -593,6 +623,15 @@ export async function getTrackerPayload(id: string): Promise<LivePayload | null>
       take: 300,
     }),
   ]);
+
+  // Display-side glitch filter: protects charts from any bad rows stored
+  // before the ingest guard existed (views never legitimately halve).
+  let runMax = 0;
+  const snaps = snapsRaw.filter((s) => {
+    if (runMax > 100 && s.viewCount < runMax * 0.5) return false;
+    runMax = Math.max(runMax, s.viewCount);
+    return true;
+  });
 
   const series = snaps.map(toPoint);
   const latest = series.length ? series[series.length - 1] : null;
