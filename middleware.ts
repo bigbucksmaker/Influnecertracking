@@ -1,20 +1,23 @@
-import { auth } from "@/auth";
+import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
 
-// Gate every page behind auth. API routes do their own checks (session or
-// CRON_SECRET), so they're excluded from the matcher below.
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
+// Keep middleware independent from the full Auth.js provider configuration.
+// It only needs to validate the existing JWT session; loading OAuth providers
+// here exhausts the middleware runtime before requests reach the app.
+export default async function middleware(req: Request) {
+  const { pathname } = new URL(req.url);
   const isPublic =
     pathname === "/login" ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/share/"); // token-gated public views (e.g. live tracker shares)
-  if (!req.auth && !isPublic) {
-    const url = new URL("/login", req.nextUrl.origin);
-    return NextResponse.redirect(url);
-  }
+
+  if (isPublic) return NextResponse.next();
+
+  const token = await getToken({ req });
+  if (!token) return NextResponse.redirect(new URL("/login", req.url));
+
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
