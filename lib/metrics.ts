@@ -187,25 +187,15 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
 
   // Latest snapshot per recent post, fetched flat (nested take:1 panics the
   // Prisma engine at scale — see fetchLatestSnapshots in lib/scoring.ts).
-  const snapByPost = await fetchLatestSnapshots<
-    {
-      viewCount: number;
-      likeCount: number;
-      retweetCount: number;
-      replyCount: number;
-      quoteCount: number;
-      bookmarkCount: number;
-      engagements: number;
-    }
-  >(recent.map((p) => p.id), {
-    viewCount: true,
-    likeCount: true,
-    retweetCount: true,
-    replyCount: true,
-    quoteCount: true,
-    bookmarkCount: true,
-    engagements: true,
-  });
+  const snapByPost = await fetchLatestSnapshots<{
+    viewCount: number;
+    likeCount: number;
+    retweetCount: number;
+    replyCount: number;
+    quoteCount: number;
+    bookmarkCount: number;
+    engagements: number;
+  }>(recent.map((p) => p.id));
 
   const followerSeries: FollowerPoint[] = followerSnaps.map((s) => ({
     t: s.capturedAt.toISOString(),
