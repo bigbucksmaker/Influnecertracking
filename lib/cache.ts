@@ -8,9 +8,26 @@ import { getShortlists } from "./shortlists";
 
 // The heavy read aggregations only change when a poll/backfill or a mutation
 // runs. Cache them so page navigations are served instantly instead of
-// re-scanning Postgres every time. Mutations call revalidateTag(CACHE_TAG).
-export const CACHE_TAG = "app-data";
-const OPTS = { revalidate: 120, tags: [CACHE_TAG] };
+// re-scanning Postgres every time.
+//
+// Two tag layers so a write doesn't nuke unrelated surfaces:
+//   CACHE_TAGS.data      — post/snapshot/account data changed (poll, backfill,
+//                          account add/remove) → leaderboard + influencer detail
+//                          + campaigns all derive from it, so they share it.
+//   per-surface tags     — a targeted mutation (rate edit, campaign edit,
+//                          shortlist edit, settings change) invalidates only
+//                          the surfaces that read that data, leaving the rest
+//                          of the app on warm cache.
+export const CACHE_TAG = "app-data"; // kept for back-compat with any stale callers
+export const CACHE_TAGS = {
+  data: "app-data",
+  leaderboard: "leaderboard",
+  accounts: "accounts-overview",
+  campaigns: "campaigns",
+  shortlists: "shortlists",
+  cost: "cost-summary",
+  influencer: "influencer-detail",
+} as const;
 
 // Cache-key version. Vercel's Data Cache PERSISTS across deployments, so if a
 // cached function's return SHAPE changes, bump this — otherwise a new build can
@@ -22,22 +39,34 @@ const OPTS = { revalidate: 120, tags: [CACHE_TAG] };
 //     (no tags / no lowConfidenceReasons) crashes the dashboard render.
 const V = "v5";
 
-export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard", V], OPTS);
-export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary", V], OPTS);
+export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard", V], {
+  revalidate: 120,
+  tags: [CACHE_TAGS.data, CACHE_TAGS.leaderboard],
+});
+export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary", V], {
+  revalidate: 120,
+  tags: [CACHE_TAGS.cost],
+});
 export const cachedAccountsOverview = unstable_cache(
   () => getAccountsOverview(),
   ["accounts-overview", V],
-  OPTS,
+  { revalidate: 120, tags: [CACHE_TAGS.data, CACHE_TAGS.accounts] },
 );
 export const cachedInfluencerDetail = unstable_cache(
   (username: string) => getInfluencerDetail(username),
   ["influencer-detail", V],
-  OPTS,
+  { revalidate: 120, tags: [CACHE_TAGS.data, CACHE_TAGS.influencer] },
 );
-export const cachedCampaigns = unstable_cache(() => getCampaignsOverview(), ["campaigns", V], OPTS);
+export const cachedCampaigns = unstable_cache(() => getCampaignsOverview(), ["campaigns", V], {
+  revalidate: 120,
+  tags: [CACHE_TAGS.data, CACHE_TAGS.campaigns],
+});
 export const cachedCampaignDetail = unstable_cache(
   (id: string) => getCampaignDetail(id),
   ["campaign-detail", V],
-  OPTS,
+  { revalidate: 120, tags: [CACHE_TAGS.data, CACHE_TAGS.campaigns] },
 );
-export const cachedShortlists = unstable_cache(() => getShortlists(), ["shortlists", V], OPTS);
+export const cachedShortlists = unstable_cache(() => getShortlists(), ["shortlists", V], {
+  revalidate: 120,
+  tags: [CACHE_TAGS.data, CACHE_TAGS.shortlists],
+});

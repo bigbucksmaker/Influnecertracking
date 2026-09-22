@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/api";
 import { getShortlists, createShortlist, addShortlistItem } from "@/lib/shortlists";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +43,6 @@ export async function POST(req: Request) {
     const res = await addShortlistItem(shortlist.id, item.account, item.note ?? null);
     if (!res.ok) failed.push(item.account);
   }
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.shortlists]) revalidateTag(t);
   return NextResponse.json({ shortlist, added: (parsed.data.items?.length ?? 0) - failed.length, failed });
 }

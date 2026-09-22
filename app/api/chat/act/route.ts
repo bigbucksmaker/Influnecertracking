@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { requireUser } from "@/lib/api";
 import { addShortlistItem } from "@/lib/shortlists";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     }
     const res = await addShortlistItem(body.shortlistId, body.username, body.note ?? null);
     if (!res.ok) return NextResponse.json(res, { status: 400 });
-    revalidateTag(CACHE_TAG);
+    for (const t of [CACHE_TAGS.data, CACHE_TAGS.leaderboard, CACHE_TAGS.accounts, CACHE_TAGS.campaigns]) revalidateTag(t);
     return NextResponse.json({ ok: true, username: body.username, shortlistId: body.shortlistId });
   }
 

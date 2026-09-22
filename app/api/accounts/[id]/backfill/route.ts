@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
 import { backfillAccount } from "@/lib/polling";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +13,6 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if ("error" in gate) return gate.error;
   const { id } = await params;
   const result = await backfillAccount(id);
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.data, CACHE_TAGS.leaderboard, CACHE_TAGS.accounts, CACHE_TAGS.influencer, CACHE_TAGS.campaigns]) revalidateTag(t);
   return NextResponse.json({ result });
 }
