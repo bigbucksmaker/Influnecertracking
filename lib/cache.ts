@@ -18,7 +18,9 @@ const OPTS = { revalidate: 120, tags: [CACHE_TAG] };
 // LeaderboardRow missing viewsSparkline → `undefined.filter` at render time).
 // v3: economics fields (value layer) on leaderboard/shortlists/campaigns.
 // v4: dailySeries on influencer detail (median views per day chart).
-const V = "v4";
+// v5: force-drop any residual pre-v3 entries — an old-shaped LeaderboardRow
+//     (no tags / no lowConfidenceReasons) crashes the dashboard render.
+const V = "v5";
 
 export const cachedLeaderboard = unstable_cache(() => computeLeaderboard(), ["leaderboard", V], OPTS);
 export const cachedCostSummary = unstable_cache(() => getCostSummary(), ["cost-summary", V], OPTS);
