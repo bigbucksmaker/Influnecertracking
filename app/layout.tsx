@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { auth } from "@/auth";
 import { Nav } from "@/components/Nav";
+import { AuthGate } from "@/components/AuthGate";
 import { AskWidget } from "@/components/AskWidget";
 import { CommandPalette } from "@/components/CommandPalette";
 import { cachedLeaderboard, cachedCampaigns } from "@/lib/cache";
@@ -42,6 +43,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={`${inter.variable} ${mono.variable}`}>
       <body>
         <div className="ambient" aria-hidden />
+        <AuthGate signedIn={!!session?.user} />
         {session?.user ? (
           <>
             <div className="flex min-h-screen">
