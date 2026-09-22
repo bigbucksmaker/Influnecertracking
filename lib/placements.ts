@@ -3,7 +3,7 @@ import { getProvider } from "./provider";
 import { recordCost, recordError } from "./logging";
 import { ingestPosts } from "./ingest";
 import { getSettings } from "./settings";
-import { summarizeViews } from "./scoring";
+import { summarizeViews, fetchLatestSnapshots } from "./scoring";
 import { parseTweetId } from "./handles";
 import type { AppSettings, Placement } from "@prisma/client";
 
@@ -25,14 +25,16 @@ export async function computeBaseline(accountId: string, windowDays = 30): Promi
   const since = new Date(Date.now() - windowDays * DAY_MS);
   const posts = await prisma.post.findMany({
     where: { accountId, commissioned: false, isReply: false, postedAt: { gte: since } },
-    select: {
-      snapshots: { orderBy: { capturedAt: "desc" }, take: 1, select: { viewCount: true, engagements: true } },
-    },
+    select: { id: true },
   });
+  const snapByPost = await fetchLatestSnapshots<{ viewCount: number; engagements: number }>(
+    posts.map((p) => p.id),
+    { viewCount: true, engagements: true },
+  );
   const views: number[] = [];
   const eng: number[] = [];
   for (const p of posts) {
-    const s = p.snapshots[0];
+    const s = snapByPost.get(p.id);
     if (!s) continue;
     views.push(s.viewCount);
     eng.push(s.engagements);
