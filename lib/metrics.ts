@@ -1,6 +1,6 @@
 import { prisma } from "./db";
 import { getSettings } from "./settings";
-import { summarizeViews } from "./scoring";
+import { summarizeViews, fetchLatestSnapshots } from "./scoring";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -182,9 +182,30 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
         postedAt: { gte: monthAgo },
       },
       orderBy: { postedAt: "desc" },
-      include: { snapshots: { orderBy: { capturedAt: "desc" }, take: 1 } },
     }),
   ]);
+
+  // Latest snapshot per recent post, fetched flat (nested take:1 panics the
+  // Prisma engine at scale — see fetchLatestSnapshots in lib/scoring.ts).
+  const snapByPost = await fetchLatestSnapshots<
+    {
+      viewCount: number;
+      likeCount: number;
+      retweetCount: number;
+      replyCount: number;
+      quoteCount: number;
+      bookmarkCount: number;
+      engagements: number;
+    }
+  >(recent.map((p) => p.id), {
+    viewCount: true,
+    likeCount: true,
+    retweetCount: true,
+    replyCount: true,
+    quoteCount: true,
+    bookmarkCount: true,
+    engagements: true,
+  });
 
   const followerSeries: FollowerPoint[] = followerSnaps.map((s) => ({
     t: s.capturedAt.toISOString(),
@@ -196,7 +217,7 @@ export async function getInfluencerDetail(usernameRaw: string): Promise<Influenc
 
   const recentPosts: RecentPost[] = recent
     .map((p) => {
-      const s = p.snapshots[0];
+      const s = snapByPost.get(p.id);
       const views = s?.viewCount ?? 0;
       const engagements = s?.engagements ?? 0;
       return {

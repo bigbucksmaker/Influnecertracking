@@ -106,6 +106,31 @@ function findClosest(
   return best ? best.followers : null;
 }
 
+/**
+ * Latest PostSnapshot per post, fetched FLAT (DISTINCT ON) and joined in JS.
+ *
+ * Why not `include: { snapshots: { orderBy, take: 1 } }`: Prisma rewrites a
+ * nested one-to-many take:1 as a LATERAL join, and at ~34k parent posts the
+ * 6.19.3 query engine panics with `PrismaClientRustPanicError: no entry found
+ * for key` (crash report confirmed in production logs 2026-09-22). The flat
+ * DISTINCT ON returns the same rows without the engine rewrite.
+ */
+export async function fetchLatestSnapshots<T extends { viewCount: number; engagements: number }>(
+  postIds: string[],
+  select: { viewCount: true; engagements: true } | { orderBy: never; take: never } | Record<string, true>,
+): Promise<Map<string, T>> {
+  const map = new Map<string, T>();
+  if (postIds.length === 0) return map;
+  const rows = await prisma.$queryRaw<T & { postId: string }[]>`
+    SELECT DISTINCT ON ("postId") *
+    FROM "PostSnapshot"
+    WHERE "postId" IN (SELECT unnest(${postIds}::text[]))
+    ORDER BY "postId", "capturedAt" DESC
+  `;
+  for (const r of rows) map.set((r as { postId: string }).postId, r);
+  return map;
+}
+
 /** Compute the full ranked leaderboard from stored snapshots. */
 export async function computeLeaderboard(settingsArg?: AppSettings): Promise<LeaderboardRow[]> {
   const settings = settingsArg ?? (await getSettings());
@@ -145,29 +170,25 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
   // Posts authored in the last 28d (4-week sparkline window), latest snapshot each.
   // Scoring uses the 7d/14d subsets; the sparkline uses the full 28d. One query,
   // no per-row round-trips (keeps the cached leaderboard fast).
-  const posts = await prisma.post.findMany({
+  const postsFlat = await prisma.post.findMany({
     where: {
       account: { status: "active" },
       isReply: false,
       commissioned: false, // organic reach only — paid placements are scored separately
       postedAt: { gte: new Date(fourWeeksAgo) },
     },
-    select: {
-      accountId: true,
-      postedAt: true,
-      snapshots: {
-        orderBy: { capturedAt: "desc" },
-        take: 1,
-        select: { viewCount: true, engagements: true },
-      },
-    },
+    select: { id: true, accountId: true, postedAt: true },
   });
+  const snapByPost = await fetchLatestSnapshots<{ viewCount: number; engagements: number }>(
+    postsFlat.map((p) => p.id),
+    { viewCount: true, engagements: true },
+  );
   const postsByAccount = new Map<
     string,
     { postedAt: Date; views: number; engagements: number }[]
   >();
-  for (const p of posts) {
-    const snap = p.snapshots[0];
+  for (const p of postsFlat) {
+    const snap = snapByPost.get(p.id);
     if (!snap) continue;
     const arr = postsByAccount.get(p.accountId) ?? [];
     arr.push({ postedAt: p.postedAt, views: snap.viewCount, engagements: snap.engagements });
