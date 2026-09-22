@@ -29,7 +29,6 @@ export async function computeBaseline(accountId: string, windowDays = 30): Promi
   });
   const snapByPost = await fetchLatestSnapshots<{ viewCount: number; engagements: number }>(
     posts.map((p) => p.id),
-    { viewCount: true, engagements: true },
   );
   const views: number[] = [];
   const eng: number[] = [];
