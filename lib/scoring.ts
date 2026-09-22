@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { Prisma } from "@prisma/client";
 import { getSettings } from "./settings";
 import { quantileSorted, summarizeViews, normalize, type ViewSummary } from "./stats";
 import { applyEconomics, type Economics } from "./value";
@@ -117,17 +118,16 @@ function findClosest(
  */
 export async function fetchLatestSnapshots<T extends { viewCount: number; engagements: number }>(
   postIds: string[],
-  select: { viewCount: true; engagements: true } | { orderBy: never; take: never } | Record<string, true>,
 ): Promise<Map<string, T>> {
   const map = new Map<string, T>();
   if (postIds.length === 0) return map;
-  const rows = await prisma.$queryRaw<T & { postId: string }[]>`
+  const rows = await prisma.$queryRaw<(T & { postId: string })[]>`
     SELECT DISTINCT ON ("postId") *
     FROM "PostSnapshot"
-    WHERE "postId" IN (SELECT unnest(${postIds}::text[]))
+    WHERE "postId" IN (${Prisma.join(postIds)})
     ORDER BY "postId", "capturedAt" DESC
   `;
-  for (const r of rows) map.set((r as { postId: string }).postId, r);
+  for (const r of rows) map.set(r.postId, r as T);
   return map;
 }
 
@@ -181,7 +181,6 @@ export async function computeLeaderboard(settingsArg?: AppSettings): Promise<Lea
   });
   const snapByPost = await fetchLatestSnapshots<{ viewCount: number; engagements: number }>(
     postsFlat.map((p) => p.id),
-    { viewCount: true, engagements: true },
   );
   const postsByAccount = new Map<
     string,
