@@ -5,7 +5,7 @@ import { parseHandles } from "@/lib/handles";
 import { getAccountsOverview, upsertTags, parseRateInput } from "@/lib/accounts";
 import { backfillAccount } from "@/lib/polling";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     }
   }
 
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.data, CACHE_TAGS.leaderboard, CACHE_TAGS.accounts, CACHE_TAGS.influencer]) revalidateTag(t);
   const accounts = await getAccountsOverview();
   return NextResponse.json({
     created: created.map((c) => c.username),

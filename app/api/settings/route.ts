@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/api";
 import { getSettings, updateSettings } from "@/lib/settings";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +43,6 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid settings", details: parsed.error.flatten() }, { status: 400 });
   }
   const settings = await updateSettings(parsed.data);
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.data, CACHE_TAGS.leaderboard, CACHE_TAGS.cost, CACHE_TAGS.campaigns, CACHE_TAGS.shortlists, CACHE_TAGS.influencer, CACHE_TAGS.accounts]) revalidateTag(t);
   return NextResponse.json({ settings });
 }

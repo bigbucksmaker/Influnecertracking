@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/api";
 import { getSettings } from "@/lib/settings";
 import { runBackgroundPoll } from "@/lib/polling";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     try {
       await runBackgroundPoll({ force });
     } finally {
-      revalidateTag(CACHE_TAG);
+      for (const t of [CACHE_TAGS.data]) revalidateTag(t);
     }
   });
 

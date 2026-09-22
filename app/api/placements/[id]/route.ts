@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
 import { detachPlacement } from "@/lib/placements";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +12,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if ("error" in gate) return gate.error;
   const { id } = await params;
   await detachPlacement(id);
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.campaigns, CACHE_TAGS.data]) revalidateTag(t);
   return NextResponse.json({ ok: true });
 }

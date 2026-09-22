@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/api";
 import { upsertTags, parseRateInput, deleteAccountCascade } from "@/lib/accounts";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,7 +60,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
   }
 
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.data, CACHE_TAGS.leaderboard, CACHE_TAGS.accounts, CACHE_TAGS.influencer]) revalidateTag(t);
   const updated = await prisma.account.findUnique({
     where: { id },
     include: { tags: { include: { tag: true } } },
@@ -98,6 +98,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       { status: 500 },
     );
   }
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.data, CACHE_TAGS.leaderboard, CACHE_TAGS.accounts, CACHE_TAGS.influencer]) revalidateTag(t);
   return NextResponse.json({ ok: true, deleted: existing.username });
 }

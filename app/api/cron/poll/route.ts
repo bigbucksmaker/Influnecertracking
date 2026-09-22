@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthorizedCron } from "@/lib/api";
 import { runBackgroundPoll } from "@/lib/polling";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +17,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const result = await runBackgroundPoll();
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.data]) revalidateTag(t);
   return NextResponse.json({ ok: true, ...result });
 }

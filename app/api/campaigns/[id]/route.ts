@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/api";
 import { getCampaignDetail } from "@/lib/placements";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +40,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const existing = await prisma.campaign.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const campaign = await prisma.campaign.update({ where: { id }, data: parsed.data });
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.campaigns]) revalidateTag(t);
   return NextResponse.json({ campaign });
 }
 
@@ -50,6 +50,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   // Deleting a campaign cascades to its placements (never the Post/Account).
   await prisma.campaign.delete({ where: { id } }).catch(() => null);
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.campaigns]) revalidateTag(t);
   return NextResponse.json({ ok: true });
 }

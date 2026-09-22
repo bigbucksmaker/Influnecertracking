@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/api";
 import { getCampaignsOverview } from "@/lib/placements";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +42,6 @@ export async function POST(req: Request) {
       createdBy: gate.email,
     },
   });
-  revalidateTag(CACHE_TAG);
+  for (const t of [CACHE_TAGS.campaigns]) revalidateTag(t);
   return NextResponse.json({ campaign });
 }

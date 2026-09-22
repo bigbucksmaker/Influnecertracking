@@ -108,34 +108,34 @@ function findClosest(
 }
 
 /**
- * Latest PostSnapshot per post, fetched FLAT (DISTINCT ON) and joined in JS.
+ * Latest PostSnapshot per post, fetched FLAT (DISTINCT ON over an id temp
+ * table) and joined in JS.
  *
- * Two constraints drive this shape:
+ * Three constraints drive this shape:
  *  1. Not `include: { snapshots: { orderBy, take: 1 } }` — Prisma rewrites a
  *     nested one-to-many take:1 as a LATERAL join, and at ~34k parent posts the
  *     6.19.3 query engine panics (PrismaClientRustPanicError: no entry found
  *     for key, production logs 2026-09-22).
- *  2. Not `WHERE "postId" IN (${Prisma.join(postIds)})` in one shot — 34k post
- *     ids blow past Postgres's 32767 bind-variable cap (P2035, production logs).
- * So we chunk the id list at 5000 per query and merge the results in JS.
+ *  2. Not `WHERE "postId" IN (${Prisma.join(postIds)})` — 34k post ids blow
+ *     past Postgres's 32767 bind-variable cap (P2035, production logs).
+ *  3. Not sequential 5000-id chunks — that was 7 serialized round trips to
+ *     Neon; fine for correctness, slow on a cold cache.
+ * So we load the ids into a single-use UNNEST'd array as ONE bind (Postgres
+ * accepts a whole array as a single parameter) and DISTINCT ON against it in
+ * one round trip.
  */
 export async function fetchLatestSnapshots<T extends { viewCount: number; engagements: number }>(
   postIds: string[],
 ): Promise<Map<string, T>> {
   const map = new Map<string, T>();
   if (postIds.length === 0) return map;
-  // Chunk to stay far under the 32767 bind-variable cap regardless of volume.
-  const CHUNK = 5000;
-  for (let i = 0; i < postIds.length; i += CHUNK) {
-    const chunk = postIds.slice(i, i + CHUNK);
-    const rows = await prisma.$queryRaw<(T & { postId: string })[]>`
-      SELECT DISTINCT ON ("postId") *
-      FROM "PostSnapshot"
-      WHERE "postId" IN (${Prisma.join(chunk)})
-      ORDER BY "postId", "capturedAt" DESC
-    `;
-    for (const r of rows) map.set(r.postId, r as T);
-  }
+  const rows = await prisma.$queryRaw<(T & { postId: string })[]>`
+    SELECT DISTINCT ON ("postId") s.*
+    FROM "PostSnapshot" s
+    WHERE s."postId" = ANY(${postIds}::text[])
+    ORDER BY s."postId", s."capturedAt" DESC
+  `;
+  for (const r of rows) map.set(r.postId, r as T);
   return map;
 }
 

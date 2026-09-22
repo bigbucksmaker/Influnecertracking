@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/api";
 import { attachPlacement } from "@/lib/placements";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   }
   try {
     const result = await attachPlacement(parsed.data);
-    revalidateTag(CACHE_TAG);
+    for (const t of [CACHE_TAGS.campaigns, CACHE_TAGS.data]) revalidateTag(t);
     return NextResponse.json({
       ok: true,
       placement: result.placement,

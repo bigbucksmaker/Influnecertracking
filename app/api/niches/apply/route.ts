@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/api";
 import { classifyAndTagBatch } from "@/lib/niche";
 import { revalidateTag } from "next/cache";
-import { CACHE_TAG } from "@/lib/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 
   try {
     const result = await classifyAndTagBatch(niches, offset, Math.min(Math.max(limit, 1), 40));
-    if (result.remaining <= 0) revalidateTag(CACHE_TAG);
+    if (result.remaining <= 0) for (const t of [CACHE_TAGS.leaderboard, CACHE_TAGS.data]) revalidateTag(t);
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
