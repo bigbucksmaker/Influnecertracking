@@ -153,7 +153,7 @@ export function applyEconomics<T extends EconomicsInput>(rows: T[]): (T & Econom
   for (const r of withCpm) {
     const own = basisCpm(r) as number;
     const nichePeers = withCpm.filter(
-      (o) => o !== r && o.tags.some((t) => r.tags.includes(t)),
+      (o) => o !== r && (o.tags ?? []).some((t) => (r.tags ?? []).includes(t)),
     );
     const useNiche = nichePeers.length >= MIN_NICHE_PEERS;
     const peerCpms = useNiche

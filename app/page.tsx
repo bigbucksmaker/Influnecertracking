@@ -114,7 +114,7 @@ export default async function DashboardPage() {
                     <div className="flex items-center gap-1.5 truncate text-sm font-medium text-fg">
                       {r.displayName ?? r.username}
                       {r.lowConfidence && (
-                        <span title={r.lowConfidenceReasons.join("; ")}><Badge color="amber">⚠</Badge></span>
+                        <span title={(r.lowConfidenceReasons ?? []).join("; ")}><Badge color="amber">⚠</Badge></span>
                       )}
                     </div>
                     <div className="truncate text-xs text-subtle">@{r.username}</div>
